@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ *
+ * Tema da empresa: vermelho (primário) + branco + cinza (fundo).
+ * Mesmo padrão visual do Quality NOC: a paleta "slate" vira cinza neutro
+ * (zinc) e "sky" vira vermelho — a marca troca no app inteiro.
+ * ------------------------------------------------------------------ */
+@theme {
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f4f4f5;
+  --color-slate-200: #e4e4e7;
+  --color-slate-300: #d4d4d8;
+  --color-slate-400: #a1a1aa;
+  --color-slate-500: #71717a;
+  --color-slate-600: #52525b;
+  --color-slate-700: #3f3f46;
+  --color-slate-800: #27272a;
+  --color-slate-900: #18181b;
+  --color-slate-950: #0b0b0d;
+
+  --color-sky-300: #fca5a5;
+  --color-sky-400: #f87171;
+  --color-sky-500: #ef4444;
+  --color-sky-600: #dc2626;
+  --color-sky-700: #b91c1c;
+}
+
+/* Cursor de mão no que é clicável (o reset do Tailwind v4 deixa botão com seta). */
+button:not(:disabled),
+summary,
+label:has(> input[type='checkbox']),
+label:has(> input[type='radio']),
+[role='button']:not([aria-disabled='true']) {
+  cursor: pointer;
+}
+
+:root {
+  color-scheme: dark;
+  --brand: #ef4444;
+  --app-bg: #0a0a0b;
+  /* Altura da barra de navegação inferior (mobile) — o <main> reserva espaço por ela. */
+  --nav-mobile-h: 3rem;
+  /* Folga do indicador de home, com teto (o Safari PWA infla o valor). */
+  --safe-b: min(env(safe-area-inset-bottom, 0px), 20px);
+  --header-h: calc(3.5rem + env(safe-area-inset-top, 0px));
+  --chart-grid: #27272a;
+  --chart-tick: #a1a1aa;
+  --tooltip-bg: #18181b;
+  --tooltip-border: #27272a;
+}
+
+/* Tema CLARO: inverte a escala slate (fundos escuros viram claros e vice-versa). */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --app-bg: #f4f4f5;
+  --color-slate-50: #09090b;
+  --color-slate-100: #18181b;
+  --color-slate-200: #27272a;
+  --color-slate-300: #3f3f46;
+  --color-slate-400: #52525b;
+  --color-slate-500: #71717a;
+  --color-slate-600: #a1a1aa;
+  --color-slate-700: #d4d4d8;
+  --color-slate-800: #e4e4e7;
+  --color-slate-900: #f4f4f5;
+  --color-slate-950: #ffffff;
+  --chart-grid: #e4e4e7;
+  --chart-tick: #52525b;
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #d4d4d8;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Evita zoom automático do iOS ao focar campos (fonte < 16px). */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--color-slate-200);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+select option,
+select optgroup {
+  background-color: var(--color-slate-900);
+  color: var(--color-slate-200);
+}
+
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Impressão do relatório: some a casca do app, sobra o conteúdo em fundo branco. */
+@media print {
+  :root {
+    --app-bg: #ffffff;
+  }
+  .app-shell {
+    height: auto;
+    overflow: visible;
+  }
+  .app-shell aside,
+  .app-shell header,
+  .app-shell footer,
+  .app-shell nav {
+    display: none !important;
+  }
+  .app-shell main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+}

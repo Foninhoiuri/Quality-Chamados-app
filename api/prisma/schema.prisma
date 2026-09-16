@@ -1,0 +1,178 @@
+// Schema do app de Chamados (dev = SQLite). Em produção dá para trocar o provider para postgresql.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------- Acesso / RBAC -----------------------------
+
+// Permissão granular (uma linha da matriz). Slug estável em `id` (ex.: "ver_dashboard").
+// `system = true` → referenciada por um guard do servidor; não pode ser apagada.
+model Permission {
+  id        String @id
+  label     String
+  module    String
+  system    Boolean @default(false)
+  roles     Role[]  @relation("RolePermissions")
+  grantedTo User[]  @relation("UserGrants")
+  deniedTo  User[]  @relation("UserDenies")
+}
+
+// Papel-template. `system = true` → papel base (Administrador) não editável/removível.
+model Role {
+  id          String       @id @default(cuid())
+  name        String
+  color       String       @default("#a1a1aa")
+  system      Boolean      @default(false)
+  permissions Permission[] @relation("RolePermissions")
+  users       User[]
+}
+
+model User {
+  id                 String       @id @default(cuid())
+  name               String
+  email              String       @unique
+  roleId             String
+  role               Role         @relation(fields: [roleId], references: [id])
+  grants             Permission[] @relation("UserGrants") // exceções + (concede além do papel)
+  denies             Permission[] @relation("UserDenies") // exceções − (remove do papel)
+  scope              String       @default("global") // 'global' ou ids de locais separados por vírgula
+  status             String       @default("ativo")
+  passwordHash       String
+  mustChangePassword Boolean      @default(false) // primeiro acesso / após reset
+  phone              String?
+  avatar             String? // caminho /uploads/... da foto de perfil
+  lastAccess         String?
+  pushSubs           PushSubscription[]
+  notifications      Notification[]
+}
+
+// Notificação por usuário (o sino).
+model Notification {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ts     DateTime @default(now())
+  kind   String // ticket | system
+  title  String
+  body   String?
+  url    String?
+  read   Boolean  @default(false)
+}
+
+// Inscrição de Web Push (por navegador do usuário).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+// ----------------------------- Locais -----------------------------
+
+// Cliente / condomínio / filial a que o chamado se refere. Também é a unidade de
+// escopo: um usuário restrito só enxerga os locais listados no `scope` dele.
+model Local {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  city      String   @default("")
+  address   String   @default("")
+  phone     String   @default("")
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tickets   Ticket[]
+  registros Registro[]
+}
+
+// ----------------------------- Chamados -----------------------------
+
+model Ticket {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  title         String
+  description   String?
+  status        String    @default("aberto") // chave de um dos status do setting `ticket_statuses`
+  origin        String    @default("manual")
+  solicitante   String? // quem pediu/relatou (síndico, morador, portaria…), texto livre
+  localId       String?
+  local         Local?    @relation(fields: [localId], references: [id], onDelete: SetNull)
+  createdById   String?
+  createdByName String
+  // Técnico que PEGOU o chamado da fila. Não existe atribuição: nulo = na fila.
+  assigneeId    String?
+  assigneeName  String?
+  photos        String    @default("[]") // caminhos das fotos de abertura (JSON)
+  donePhotos    String    @default("[]") // caminhos das fotos de finalização (JSON)
+  // ---- atendimento técnico (preenchido por quem pegou o chamado) ----
+  analise         String? // análise do problema
+  possivelSolucao String?
+  solucao         String? // obrigatória para concluir
+  acoesTomadas    String?
+  // Idas ao local: [{id, data 'YYYY-MM-DD', inicio 'HH:MM'?, fim 'HH:MM'?, minutos, tecnicoId, tecnicoNome}].
+  // Com início e saída, `minutos` é calculado; sem eles, é o tempo informado à mão.
+  visitas       String    @default("[]")
+  // Material: [{id, descricao, quantidade, tipo: 'trocado'|'comprado', valor?}]
+  itens         String    @default("[]")
+  resolvedAt    DateTime? // quando entrou no status de conclusão
+  archivedAt    DateTime? // finalizado à mão (vai para o histórico sem esperar a semana)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  comments      TicketComment[]
+}
+
+// Andamento do chamado: o que foi feito, por quem, quando.
+model TicketComment {
+  id         String   @id @default(cuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String?
+  authorName String
+  body       String
+  createdAt  DateTime @default(now())
+}
+
+// ----------------------------- Registros (linha do tempo) -----------------------------
+
+// Acontecimento ou solicitação que NÃO é chamado: "síndico pediu 2ª via do controle",
+// "queda de energia às 14h". Fica na linha do tempo; pode virar chamado depois.
+model Registro {
+  id          String   @id @default(cuid())
+  ocorridoEm  DateTime @default(now()) // data e hora do acontecimento (editável)
+  tipo        String   @default("ocorrencia") // ocorrencia | solicitacao | informacao
+  solicitante String? // quem solicitou / quem avisou
+  descricao   String
+  localId     String?
+  local       Local?   @relation(fields: [localId], references: [id], onDelete: SetNull)
+  autorId     String?
+  autorName   String
+  ticketId    String? // preenchido quando o registro virou chamado
+  createdAt   DateTime @default(now())
+}
+
+// ----------------------------- Auditoria / config -----------------------------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  ts        DateTime @default(now())
+  actorName String
+  actorRole String
+  action    String
+  entity    String
+  target    String
+  local     String?
+  detail    String?
+}
+
+model Setting {
+  key   String @id
+  value String
+}

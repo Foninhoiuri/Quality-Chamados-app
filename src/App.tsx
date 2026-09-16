@@ -1,0 +1,89 @@
+import { useEffect, type ReactElement } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { Loader2, Lock } from 'lucide-react'
+import { Layout } from './components/Layout'
+import Login from './components/Login'
+import Setup from './components/Setup'
+import ForcePasswordChange from './components/ForcePasswordChange'
+import { useStore, useCan, usePerms } from './lib/store'
+import Dashboard from './pages/Dashboard'
+import Chamados from './pages/Chamados'
+import Relatorios from './pages/Relatorios'
+import Registros from './pages/Registros'
+import Locais from './pages/Locais'
+import Usuarios from './pages/Usuarios'
+import Auditoria from './pages/Auditoria'
+import Configuracoes from './pages/Configuracoes'
+
+/** Guarda de rota: URL digitada à mão sem permissão mostra "sem acesso" em vez de tela vazia. */
+function Guarded({ perm, children }: { perm: string; children: ReactElement }) {
+  if (useCan(perm)) return children
+  return (
+    <div className="grid h-full place-items-center py-20">
+      <div className="max-w-sm text-center">
+        <Lock size={22} className="mx-auto mb-3 text-slate-600" />
+        <div className="text-sm font-medium text-slate-200">Sem acesso a esta tela</div>
+        <p className="mt-1 text-[13px] text-slate-500">Seu perfil não tem a permissão necessária. Fale com um administrador se precisar dela.</p>
+      </div>
+    </div>
+  )
+}
+
+/** Página inicial: dashboard para quem pode; senão, direto para os chamados. */
+function Inicio() {
+  const perms = usePerms()
+  if (perms.has('ver_dashboard')) return <Dashboard />
+  if (perms.has('ver_chamados')) return <Navigate to="/chamados" replace />
+  return <Navigate to="/configuracoes" replace />
+}
+
+export default function App() {
+  const booted = useStore((s) => s.booted)
+  const me = useStore((s) => s.me)
+  const needsSetup = useStore((s) => s.needsSetup)
+  const boot = useStore((s) => s.boot)
+  const logout = useStore((s) => s.logout)
+
+  useEffect(() => {
+    boot()
+    const onUnauthorized = () => logout()
+    window.addEventListener('auth:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('auth:unauthorized', onUnauthorized)
+  }, [boot, logout])
+
+  if (!booted) {
+    return (
+      <div className="grid h-screen place-items-center bg-[var(--app-bg)]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex h-16 w-16 animate-pulse items-center justify-center rounded-2xl bg-red-600">
+            <img src="/logo.png" alt="Aexecutiva" className="h-12 w-12 object-contain" />
+          </div>
+          <div className="text-center">
+            <div className="text-base font-semibold text-slate-100">Aexecutiva · Quality Work</div>
+            <div className="text-[11px] uppercase tracking-wider text-slate-500">Central de Chamados</div>
+          </div>
+          <Loader2 size={18} className="animate-spin text-slate-600" />
+        </div>
+      </div>
+    )
+  }
+  if (!me && needsSetup) return <Setup />
+  if (!me) return <Login />
+  if (me.mustChangePassword) return <ForcePasswordChange />
+
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route path="/" element={<Inicio />} />
+        <Route path="/chamados" element={<Guarded perm="ver_chamados"><Chamados /></Guarded>} />
+        <Route path="/registros" element={<Guarded perm="ver_registros"><Registros /></Guarded>} />
+        <Route path="/relatorios" element={<Guarded perm="ver_relatorios"><Relatorios /></Guarded>} />
+        <Route path="/locais" element={<Guarded perm="ver_locais"><Locais /></Guarded>} />
+        <Route path="/usuarios" element={<Guarded perm="ver_usuarios"><Usuarios /></Guarded>} />
+        <Route path="/auditoria" element={<Guarded perm="ver_auditoria"><Auditoria /></Guarded>} />
+        <Route path="/configuracoes" element={<Configuracoes />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  )
+}

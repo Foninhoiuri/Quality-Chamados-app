@@ -1,0 +1,46 @@
+services:
+  api:
+    build:
+      context: ./api
+    container_name: chamados-api
+    restart: unless-stopped
+    environment:
+      # SQLite dentro do volume — o arquivo precisa ficar fora da imagem
+      DATABASE_URL: file:/data/chamados.db
+      JWT_SECRET: ${JWT_SECRET}
+      # Origens aceitas pelo CORS. A API se recusa a subir em produção sem ela.
+      WEB_ORIGIN: ${WEB_ORIGIN}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      PORT: 3002
+    volumes:
+      - chamados_db:/data
+      - chamados_uploads:/app/uploads
+    mem_limit: 384m
+    networks:
+      - internal
+    # Sem "ports": a API só é alcançável pelo nginx do front, na rede interna.
+
+  web:
+    build: .
+    container_name: chamados-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${APP_PORT:-3021}:80'
+    mem_limit: 128m
+    networks:
+      - internal
+      - proxy
+
+volumes:
+  chamados_db:
+  chamados_uploads:
+
+networks:
+  internal:
+  proxy:
+    # Rede compartilhada entre as stacks (criada pela stack infra-proxy).
+    # Se ainda não existe no servidor, crie uma única vez:
+    #   docker network create proxy
+    external: true
