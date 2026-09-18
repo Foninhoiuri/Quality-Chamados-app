@@ -5,17 +5,135 @@ que precisa mudar para sair do papel.
 
 ---
 
-## Ajustes visuais que ficaram para a próxima rodada
+## O que falta no app — lista de ideias
 
-Anotados durante a faxina visual de setembro/2026 e **já construídos** desde então:
-agrupamento de pinos no mapa, ida ao local com a hora de agora em um toque, mover cartão
-entre colunas pelo celular e o tema claro com verde e amarelo legíveis.
+Ordenado pelo que mais muda o dia da operação. Cada item diz o problema primeiro; sem
+problema claro, a ideia não vale o código.
 
-O que sobrou:
+### 1. Comprovação do atendimento (assinatura e anexos que não são foto)
 
-- **Confirmar a ida pelo GPS.** Hoje "Cheguei agora" marca a hora. Dava para, com a
-  permissão de localização, comparar a posição com o pino do local e registrar junto que a
-  ida foi mesmo no endereço — útil quando o relatório de horas é cobrado pelo cliente.
+**Problema:** a única prova do serviço é a foto e o texto do técnico. Quando o síndico
+contesta ("ninguém veio", "não foi isso que combinamos"), não há o que mostrar.
+
+**Proposta:** assinatura do responsável no local, colhida com o dedo na tela ao concluir
+(nome + assinatura + hora), e anexos de qualquer tipo no chamado — orçamento em PDF, nota
+fiscal, vídeo curto do defeito.
+
+**Muda:** `Ticket.assinatura` (imagem + nome + timestamp) e uma tabela `Anexo`
+(ticketId, nome, tipo, tamanho, caminho); o upload já existe, falta aceitar outros tipos
+com limite de tamanho; a assinatura entra no PDF do relatório.
+
+### 2. Chamados programados (preventivas)
+
+**Problema:** manutenção periódica é combinada por contrato e hoje depende de alguém
+lembrar de abrir o chamado.
+
+**Proposta:** agendamento por local — "toda primeira segunda do mês, limpeza das câmeras" —
+que cria o chamado sozinho na data, já na fila, marcado como preventivo.
+
+**Muda:** tabela `Agendamento` (local, título, descrição, recorrência, ativo), um job no
+boot da API varrendo o que venceu, e um filtro "preventivo × corretivo" nos relatórios —
+misturar os dois distorce qualquer média.
+
+### 3. Acompanhamento pelo solicitante, sem conta
+
+**Problema:** quem abriu o chamado (síndico, zeladoria) liga para saber o andamento, porque
+não tem como ver.
+
+**Proposta:** link público por chamado, com token, mostrando só o essencial — situação,
+data de abertura, o que foi feito, fotos finais — e um aviso automático quando conclui.
+
+**Muda:** `Ticket.tokenPublico`, uma rota pública de leitura com rate limit e uma página
+sem login. Aviso por e-mail exige SMTP configurado; por WhatsApp, um provedor.
+
+### 4. Custo e faturamento por local
+
+**Problema:** o app já sabe as horas e os itens, mas não o dinheiro. Fechar o mês com o
+cliente ainda é planilha à parte.
+
+**Proposta:** valor-hora por técnico (ou por local), somado às peças, fechando um valor por
+chamado e um total por local no mês, com o CSV e o PDF já prontos para anexar à cobrança.
+
+**Muda:** `valorHora` em User/Local, campo de desconto/acréscimo no chamado e uma seção de
+custos no relatório mensal — atrás de uma permissão própria (`ver_custos`).
+
+### 5. Catálogo de peças
+
+**Problema:** os itens são texto livre. "Fonte 12V", "fonte 12v 5a" e "FONTE" viram três
+coisas diferentes, e o relatório de material não fecha.
+
+**Proposta:** cadastro simples de peças (nome, unidade, valor de referência) com
+autocompletar no atendimento, aceitando item fora do catálogo quando for exceção.
+
+**Muda:** tabela `Peca`, `itens` do chamado passa a guardar `pecaId` quando houver, e o
+relatório soma por peça — abrindo caminho para "o que mais troca em cada local".
+
+### 6. Chamado parado
+
+**Problema:** um chamado pego e esquecido não aparece em lugar nenhum; só some da vista.
+
+**Proposta:** marcar na tela (e avisar quem coordena) o chamado sem nenhum movimento há
+mais de X dias — sem virar prazo contratual, que este app não tem de propósito. É higiene
+de fila, não SLA.
+
+**Muda:** cálculo no `/stats/overview` e um selo no cartão; o X fica em Configurações.
+
+### 7. Funcionar sem sinal
+
+**Problema:** subsolo, casa de máquinas, elevador. É exatamente onde o técnico está quando
+precisa registrar a ida ou a foto.
+
+**Proposta:** guardar o que foi escrito no aparelho e enviar quando a rede voltar, com aviso
+do que está pendente.
+
+**Muda:** fila de escrita no IndexedDB, reenvio no service worker e tratamento de conflito
+(o servidor ganha quando o chamado mudou no meio).
+
+### 8. Backup do banco e das fotos
+
+**Problema:** o volume do Docker guarda hash de senha, chamados e fotos de cliente. Hoje não
+existe cópia automática. Perder o volume é perder a operação inteira.
+
+**Proposta:** dump diário do SQLite + tar dos uploads para um destino fora do host,
+com aviso quando o backup falha.
+
+**Muda:** um serviço no `docker-compose.yml` com cron e destino configurável por variável
+de ambiente. Nada de credencial em arquivo versionado.
+
+### 9. Busca global
+
+**Problema:** achar "aquele chamado do portão do Jardim" exige lembrar em qual das três
+telas ele está.
+
+**Proposta:** uma busca só (Ctrl+K no desktop, lupa no celular) varrendo chamados, locais e
+registros, com o resultado levando direto ao lugar certo.
+
+**Muda:** rota `/busca?q=` no servidor e um diálogo no front.
+
+### 10. Testes das regras que não podem quebrar
+
+**Problema:** o app já tem regras que, se quebrarem, ninguém percebe na hora: concluir sem
+solução, cancelado sumindo dos relatórios, gestor sem poder atender, horas sem duplicar em
+chamado compartilhado.
+
+**Proposta:** um punhado de testes de API (não de tela) cobrindo exatamente essas regras,
+rodando antes do deploy.
+
+**Muda:** `vitest` na API, banco SQLite temporário por execução e um passo no build.
+
+### 11. Importar locais de planilha
+
+**Problema:** começar em um cliente novo é digitar dezenas de condomínios à mão.
+
+**Proposta:** importação de CSV com pré-visualização e conferência antes de gravar,
+reaproveitando o CEP para o pino do mapa.
+
+### 12. Confirmar a ida pelo GPS
+
+**Problema:** "Cheguei agora" marca a hora, mas não onde.
+
+**Proposta:** com a permissão de localização, comparar a posição com o pino do local e
+registrar a distância na ida — vira prova quando o relatório de horas é cobrado.
 
 ---
 
