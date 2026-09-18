@@ -4,7 +4,7 @@ import { Plus, Pencil, Trash2, MessageSquare, User as UserIcon, Undo2, Building2
 import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
-import { assetUrl } from '@/lib/api'
+import { api, assetUrl } from '@/lib/api'
 import { esperaDesde, FASES, faseDoTicket, paraInputLocal, parseStatuses } from '@/lib/tickets'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
 import { TicketComments } from '@/components/TicketComments'
@@ -108,7 +108,30 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
 
   // Detalhe aberto pela URL (?t=<id>) — é para onde as notificações levam.
   const detailId = params.get('t')
-  const detail = detailId ? tickets.find((t) => t.id === detailId) ?? null : null
+  const naLista = detailId ? tickets.find((t) => t.id === detailId) ?? null : null
+  /**
+   * Concluído antigo não está na lista ativa. Em vez de dizer "não encontrado", o app
+   * busca o chamado pelo id — é o que faz o histórico abrir igual ao resto.
+   */
+  const [detalheRemoto, setDetalheRemoto] = useState<Ticket | null>(null)
+  const [buscandoDetalhe, setBuscandoDetalhe] = useState(false)
+  useEffect(() => {
+    if (!detailId || naLista) { setDetalheRemoto(null); return }
+    if (detalheRemoto?.id === detailId) return
+    let vivo = true
+    setBuscandoDetalhe(true)
+    api.ticket(detailId)
+      .then((t) => { if (vivo) setDetalheRemoto(t) })
+      .catch(() => { if (vivo) setDetalheRemoto(null) })
+      .finally(() => { if (vivo) setBuscandoDetalhe(false) })
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailId, naLista])
+  const detail = naLista ?? (detalheRemoto?.id === detailId ? detalheRemoto : null)
+  const recarregarDetalhe = () => {
+    refreshTickets()
+    if (detailId && !naLista) api.ticket(detailId).then(setDetalheRemoto).catch(() => {})
+  }
   const openDetail = (t: Ticket) => setParams((p) => { p.set('t', t.id); return p })
   const closeDetail = () => setParams((p) => { p.delete('t'); return p })
 
@@ -338,7 +361,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         )
 
         if (fase === 'concluido') {
-          return <ListaConcluidos rows={rows} filtros={filtros} labelOf={labelOf} podeHistorico={canHistorico} onDetail={openDetail} />
+          return <ListaConcluidos rows={rows} filtros={filtros} labelOf={labelOf} podeHistorico={canHistorico} podeEditar={canEditarConcluido && canManage} onDetail={openDetail} />
         }
 
         // Abertos: é uma fila, não um quadro — cartões lado a lado, do mais antigo na espera.
@@ -613,7 +636,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             t={detail}
             labelOf={labelOf}
             concluido={doneKeys.has(detail.status)}
-            onRefresh={() => refreshTickets()}
+            onRefresh={recarregarDetalhe}
             // Quem pegou preenche; quem corrige atendimento (administrador) também.
             podeAtender={canAtender && (ehMeu(detail) || canCorrigir) && podeMexer(detail)}
             podeCompartilhar={canShare && !!detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir)}
@@ -666,7 +689,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           t={tickets.find((x) => x.id === atendendo.id) ?? atendendo}
           podeConcluir={canFinish && !doneKeys.has(atendendo.status)}
           onFechar={() => setAtendendo(null)}
-          onSalvo={() => refreshTickets()}
+          onSalvo={recarregarDetalhe}
           onConcluir={async () => {
             const alvo = tickets.find((x) => x.id === atendendo.id) ?? atendendo
             setAtendendo(null)
@@ -676,10 +699,10 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         />
       )}
 
-      {/* Link de notificação para chamado que não está mais na lista ativa. */}
-      {detailId && !detail && tickets.length > 0 && (
-        <Modal open onClose={closeDetail} title="Chamado não encontrado" footer={<Button variant="subtle" onClick={closeDetail}>Fechar</Button>}>
-          <p className="text-sm text-slate-300">Este chamado não está mais entre os ativos — pode ter sido finalizado (veja o Histórico) ou excluído.</p>
+      {/* Só depois de procurar no servidor é que o chamado realmente não existe. */}
+      {detailId && !detail && !buscandoDetalhe && tickets.length > 0 && (
+        <Modal open onClose={closeDetail} title="Chamado não encontrado">
+          <p className="text-sm text-slate-300">Este chamado não existe mais — pode ter sido excluído ou cancelado.</p>
         </Modal>
       )}
     </div>

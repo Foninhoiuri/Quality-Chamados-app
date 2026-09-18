@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Building2, Clock, User as UserIcon, Check, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone } from 'lucide-react'
+import { Loader2, Building2, Clock, User as UserIcon, Check, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone, Pencil } from 'lucide-react'
 import { Button, EmptyState, Modal, Select } from '@/components/ui'
 import { useMobile } from '@/lib/useMediaQuery'
 import { PhotoInput } from '@/components/PhotoInput'
@@ -37,13 +37,15 @@ const curto = (d: Date) => d.toLocaleDateString('pt-BR', { day: '2-digit', month
  * — concluído é concluído, sem estado "arquivado" para a pessoa administrar. Navega
  * semana a semana; "Tudo" solta a lista inteira.
  */
-export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetail }: {
+export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEditar, onDetail }: {
   /** Concluídos que ainda estão no quadro, já filtrados. */
   rows: Ticket[]
   /** Os mesmos filtros da barra de cima, aplicados também ao histórico. */
   filtros: FiltroChamados
   labelOf: (k: string) => string
   podeHistorico: boolean
+  /** Tem `editar_concluidos`: o botão de editar aparece direto na lista. */
+  podeEditar: boolean
   onDetail: (t: Ticket) => void
 }) {
   const showToast = useStore((s) => s.showToast)
@@ -55,7 +57,6 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetai
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
   const [aberto, setAberto] = useState<string | null>(null)
-  const [ocupado, setOcupado] = useState<string | null>(null)
   const mobile = useMobile()
 
   async function carregarHistorico() {
@@ -109,8 +110,6 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetai
   const temAnterior = !!(maisAntigo && maisAntigo.getTime() < semana.getTime())
   const temProxima = fimDaSemana.getTime() < Date.now()
 
-  /** Só a lista ativa abre o chamado inteiro; o histórico antigo é leitura aqui mesmo. */
-  const estaNaListaAtiva = (t: Ticket) => rows.some((r) => r.id === t.id)
   const abertoNoMobile = aberto ? todos.find((t) => t.id === aberto) ?? null : null
 
   if (historico === null) return <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-slate-600" /></div>
@@ -193,7 +192,6 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetai
               <ol className="relative ml-2 border-l border-slate-800">
                 {g.itens.map((t) => {
                   const expandido = aberto === t.id
-                  const naLista = estaNaListaAtiva(t)
                   return (
                     <li key={t.id} className="relative mb-3 ml-5 last:mb-0">
                       <span className="absolute -left-[27px] top-3.5 h-3 w-3 rounded-full border-2 border-[var(--app-bg)] bg-emerald-500" />
@@ -219,7 +217,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetai
                         {/* No desktop o chamado abre ali mesmo; no celular vira modal —
                             ler um chamado inteiro dentro de uma lista espremida não funciona. */}
                         {expandido && !mobile && (
-                          <ConteudoConcluido t={t} podeAbrir={naLista} onDetail={() => onDetail(t)} />
+                          <ConteudoConcluido t={t} podeEditar={podeEditar} onDetail={() => onDetail(t)} />
                         )}
                       </div>
                     </li>
@@ -254,11 +252,9 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetai
             </div>
           }
           fechar="Fechar"
-          footer={estaNaListaAtiva(abertoNoMobile)
-            ? <Button onClick={() => { setAberto(null); onDetail(abertoNoMobile) }}>Abrir chamado</Button>
-            : undefined}
+          footer={<Button onClick={() => { setAberto(null); onDetail(abertoNoMobile) }}>{podeEditar ? 'Abrir e editar' : 'Abrir chamado'}</Button>}
         >
-          <ConteudoConcluido t={abertoNoMobile} podeAbrir={false} onDetail={() => { setAberto(null); onDetail(abertoNoMobile) }} />
+          <ConteudoConcluido t={abertoNoMobile} podeEditar={false} onDetail={() => { setAberto(null); onDetail(abertoNoMobile) }} />
         </Modal>
       )}
     </div>
@@ -277,10 +273,9 @@ function Bloco({ label, valor }: { label: string; valor?: string | null }) {
 
 
 /** O chamado concluído por inteiro: o que aconteceu, o atendimento, as horas e as fotos. */
-function ConteudoConcluido({ t, podeAbrir, onDetail }: {
+function ConteudoConcluido({ t, podeEditar, onDetail }: {
   t: Ticket
-  /** Chamado ainda na lista ativa: dá para abrir o chamado inteiro. */
-  podeAbrir: boolean
+  podeEditar: boolean
   onDetail: () => void
 }) {
   return (
@@ -367,11 +362,11 @@ function ConteudoConcluido({ t, podeAbrir, onDetail }: {
       </div>
     )}
   
-    {podeAbrir && (
-      <div className="flex justify-end border-t border-slate-800 pt-2">
-        <Button size="sm" variant="subtle" onClick={() => onDetail()}>Abrir chamado</Button>
-      </div>
-    )}
+    {/* Abrir leva ao chamado inteiro — de onde se edita, quando há permissão para isso. */}
+    <div className="flex justify-end gap-2 border-t border-slate-800 pt-2">
+      <Button size="sm" variant={podeEditar ? 'subtle' : 'primary'} onClick={() => onDetail()}>Abrir chamado</Button>
+      {podeEditar && <Button size="sm" onClick={() => onDetail()}><Pencil size={13} /> Editar</Button>}
+    </div>
   </div>
   )
 }

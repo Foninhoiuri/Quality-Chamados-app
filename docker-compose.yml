@@ -20,6 +20,32 @@ services:
       - internal
     # Sem "ports": a API só é alcançável pelo nginx do front, na rede interna.
 
+  # Cópia diária do banco e das fotos. Sem isto, perder o volume é perder a operação.
+  # O destino (BACKUP_DIR no host) deve ficar FORA deste servidor sempre que possível —
+  # um disco externo ou um compartilhamento do NAS montado no host.
+  backup:
+    build:
+      context: ./api
+    container_name: chamados-backup
+    restart: unless-stopped
+    command: ['npm', 'run', 'backup:loop']
+    environment:
+      DATABASE_URL: file:/data/chamados.db
+      UPLOAD_DIR: /app/uploads
+      BACKUP_DIR: /backup
+      BACKUP_MANTER: ${BACKUP_MANTER:-14}
+      BACKUP_INTERVALO: ${BACKUP_INTERVALO:-24}
+      BACKUP_WEBHOOK: ${BACKUP_WEBHOOK:-}
+    volumes:
+      # O banco monta como leitura-e-escrita de propósito: o SQLite em modo WAL precisa
+      # tocar os arquivos -wal/-shm até para ler. O backup só lê o conteúdo.
+      - chamados_db:/data
+      - chamados_uploads:/app/uploads:ro
+      - ${BACKUP_DIR:-./backups}:/backup
+    mem_limit: 192m
+    networks:
+      - internal
+
   web:
     build: .
     container_name: chamados-web

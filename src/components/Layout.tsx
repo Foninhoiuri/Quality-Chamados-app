@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2 } from 'lucide-react'
+import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2, CloudOff } from 'lucide-react'
 import { cn, iniciais } from '@/lib/utils'
 import { useStore, useCurrentUser, useCurrentRole, usePerms } from '@/lib/store'
 import { assetUrl } from '@/lib/api'
@@ -12,6 +12,7 @@ import { NotificationsManager, NotificationsBanner } from './Notifications'
 import { ErroNaTela } from './ErroNaTela'
 import { useClickFora } from '@/lib/useClickFora'
 import { AREA_DA_ROTA, useNovidades } from '@/lib/novidades'
+import { assinarFila, pendentes, processarFila } from '@/lib/fila'
 
 type NavItem = { to: string; label: string; menuLabel?: string; icon: typeof Users; perm?: string; end?: boolean }
 
@@ -335,6 +336,7 @@ function FilaResumo({ colapsada }: { colapsada: boolean }) {
 export function Layout() {
   const perms = usePerms()
   const me = useStore((s) => s.me)
+  const showToast = useStore((s) => s.showToast)
   const refreshTickets = useStore((s) => s.refreshTickets)
   const refreshNotifications = useStore((s) => s.refreshNotifications)
   const setApiOnline = useStore((s) => s.setApiOnline)
@@ -349,6 +351,27 @@ export function Layout() {
   }, [navColapsada])
 
   const { buscar: buscarNovidades, marcarVisto, temNovidade } = useNovidades(me?.id, perms.has('ver_chamados') || perms.has('ver_registros'))
+
+  /**
+   * O que foi feito sem sinal e ainda não subiu. Some sozinho quando a rede volta; até
+   * lá, fica à vista — ninguém deve descobrir só no fim do dia que a hora não foi salva.
+   */
+  const [naFila, setNaFila] = useState(() => pendentes().length)
+  useEffect(() => assinarFila(() => setNaFila(pendentes().length)), [])
+  const enviarPendentes = useCallback(async () => {
+    if (pendentes().length === 0) return
+    const { enviadas, restantes } = await processarFila()
+    setNaFila(restantes)
+    if (enviadas > 0) {
+      refreshTickets().catch(() => {})
+      showToast(`${enviadas} ação(ões) enviada(s) depois que a rede voltou`)
+    }
+  }, [refreshTickets, showToast])
+  useEffect(() => {
+    enviarPendentes()
+    window.addEventListener('online', enviarPendentes)
+    return () => window.removeEventListener('online', enviarPendentes)
+  }, [enviarPendentes])
 
   // Estar na tela zera o ponto dela — e continua zerando enquanto a pessoa fica ali.
   useEffect(() => {
@@ -365,10 +388,11 @@ export function Layout() {
       refreshNotifications().then(() => setApiOnline(true)).catch((e) => { if (e?.status === 0) setApiOnline(false) })
       if (perms.has('ver_chamados')) refreshTickets().catch(() => {})
       buscarNovidades()
+      enviarPendentes()
     }
     const id = setInterval(tick, 12000)
     return () => clearInterval(id)
-  }, [refreshTickets, refreshNotifications, setApiOnline, perms, buscarNovidades])
+  }, [refreshTickets, refreshNotifications, setApiOnline, perms, buscarNovidades, enviarPendentes])
 
   const pontoNaRota = (rota: string) => {
     const area = AREA_DA_ROTA[rota]
@@ -446,6 +470,13 @@ export function Layout() {
         {!online && (
           <div className="shrink-0 bg-red-950/60 px-4 py-1.5 text-center text-[11px] text-red-300" style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}>
             <StatusIndicator />
+          </div>
+        )}
+        {naFila > 0 && (
+          <div className="flex shrink-0 items-center justify-center gap-2 bg-amber-950/50 px-4 py-1.5 text-center text-[11px] text-amber-300">
+            <CloudOff size={12} />
+            {naFila} {naFila === 1 ? 'registro guardado' : 'registros guardados'} no aparelho — sobe{naFila === 1 ? '' : 'm'} quando a rede voltar
+            <button onClick={enviarPendentes} className="rounded px-1.5 py-0.5 underline-offset-2 hover:underline">tentar agora</button>
           </div>
         )}
 

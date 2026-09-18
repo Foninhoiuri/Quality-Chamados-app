@@ -5,6 +5,57 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 18/09/2026 — sem sinal, backup e testes
+
+### Funcionar sem sinal
+
+O técnico registra a ida no subsolo, na casa de máquinas, no elevador — onde não há rede.
+Agora, quando o envio falha por falta de conexão, a ação fica guardada no aparelho e sobe
+sozinha quando a rede volta. Vale para **marcar chegada/saída**, **salvar o atendimento** e
+**comentar** — o que se faz em campo, e sempre sobre um chamado que já existe.
+
+Uma faixa no topo mostra quantos registros estão esperando, com um "tentar agora". Nada
+finge que salvou: a mensagem diz que está na fila. Ver `src/lib/fila.ts`.
+
+### Backup do banco e das fotos
+
+O volume guarda hash de senha, chamados e fotos de cliente, e até aqui não havia cópia
+nenhuma. Entrou um serviço `backup` no `docker-compose.yml` que, uma vez por dia:
+
+- copia o SQLite com `VACUUM INTO` (sai íntegro mesmo com a API escrevendo no meio);
+- compacta a pasta de uploads;
+- guarda as N cópias mais recentes (padrão 14) e apaga o resto;
+- avisa por webhook quando falha, se `BACKUP_WEBHOOK` estiver configurado.
+
+O destino é `BACKUP_DIR` no host — aponte para um disco externo ou um compartilhamento de
+rede: cópia no mesmo disco não salva de incêndio nem de disco queimado. Dá para rodar na
+mão com `npm run backup` dentro de `api/`.
+
+### Testes das regras que não podem quebrar
+
+`npm test` em `api/` sobe a API de verdade contra um SQLite temporário e cobre o que
+quebra sem ninguém perceber:
+
+- a senha temporária entra no login (o bug desta semana, agora com teste de regressão);
+- senha escolhida por quem cadastra vale, com ou sem troca no primeiro acesso;
+- chamado não conclui sem solução e conclui depois dela;
+- concluído só é editado por quem tem `editar_concluidos`;
+- gestor abre chamado, mas não pega nem atende;
+- cancelado some das listas e do relatório, e fica na auditoria com o motivo;
+- chamado compartilhado soma as idas **sem duplicar** as horas;
+- ida em andamento vale zero até a saída ser marcada;
+- histórico exige `ver_arquivados` e nada é lido sem token.
+
+### Corrigido no caminho
+
+- **Chamado concluído do histórico não abria.** O app só tinha os ativos em memória, então
+  clicar no concluído antigo caía em "chamado não encontrado" — e por isso não dava para
+  editar nem com a permissão. Entrou `GET /tickets/:id` e a tela passa a buscar o chamado
+  quando ele não está na lista. Na lista de concluídos, o botão **Editar** aparece para
+  quem tem permissão, ao lado de "Abrir chamado".
+
+---
+
 ## 18/09/2026 — correções pedidas na revisão
 
 ### Senhas de usuário (era o mais grave)

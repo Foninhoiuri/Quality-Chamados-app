@@ -58,6 +58,8 @@ visual do NOC (vermelho + cinza escuro, tema claro/escuro) — só o que o atend
   formulário que peça um local.
 - **Auditoria** imutável e **notificações** (sino, pop-up do navegador e Web Push com o app fechado),
   com escolha, por usuário, de **sobre o que ser avisado**.
+- **Funciona sem sinal**: chegada/saída, atendimento e comentário feitos sem rede ficam
+  guardados no aparelho e sobem quando a conexão volta, com aviso do que está pendente.
 - **Feito para o celular**: modais em folha de rodapé com a ação principal ao alcance do polegar,
   filtros recolhidos, quadro de Em andamento em abas, matriz de permissões por perfil, relatório em
   acordeão, tabelas viram cartões e o topo das telas guarda o secundário atrás dos três pontinhos.
@@ -83,6 +85,24 @@ npm run dev               # painel em http://localhost:5174
 Abra <http://localhost:5174>: na primeira vez aparece a tela de **configuração inicial** para
 criar o administrador. As portas são diferentes das do NOC (5173/3001), então os dois rodam
 lado a lado.
+
+## Testes
+
+```bash
+cd api
+npm test          # sobe a API contra um SQLite temporário e checa as regras críticas
+```
+
+Cobrem o que quebra em silêncio: senha temporária, conclusão sem solução, chamado
+concluído fechado para edição, alcance do Gestor, cancelamento saindo dos relatórios e
+horas de chamado compartilhado sem duplicação.
+
+## Backup
+
+O serviço `backup` do `docker-compose.yml` copia o banco (`VACUUM INTO`) e as fotos uma vez
+por dia para `BACKUP_DIR`, guardando as últimas `BACKUP_MANTER` cópias e avisando por
+`BACKUP_WEBHOOK` quando falha. Aponte `BACKUP_DIR` para um disco **fora** deste servidor.
+Para rodar na hora: `cd api && npm run backup`.
 
 ## Deploy (Portainer)
 

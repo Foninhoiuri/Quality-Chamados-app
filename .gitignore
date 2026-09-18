@@ -29,3 +29,7 @@ uploads/
 *.db.bak*
 *.sqlite
 *.sqlite.bak*
+
+# Banco temporário dos testes e cópias locais de backup
+api/test/temp-testes.db*
+backups/

@@ -3,6 +3,7 @@ import { Send, Trash2, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn, iniciais } from '@/lib/utils'
 import { useCan, useCurrentUser, useStore } from '@/lib/store'
+import { ehFalhaDeRede, enfileirar } from '@/lib/fila'
 import type { TicketComment } from '@/lib/types'
 
 function quando(ts: string) {
@@ -47,8 +48,13 @@ export function TicketComments({ ticketId, podeComentar, onCountChange }: {
       setItems((s) => [...(s ?? []), novo])
       setTexto('')
       onCountChange?.()
-    } catch {
-      showToast('Não foi possível comentar')
+    } catch (e) {
+      if (ehFalhaDeRede(e) && enfileirar({ metodo: 'POST', caminho: `/tickets/${ticketId}/comments`, corpo: { body }, descricao: 'comentário' })) {
+        setTexto('')
+        showToast('Sem rede — o comentário sobe assim que a conexão voltar')
+      } else {
+        showToast('Não foi possível comentar')
+      }
     } finally {
       setEnviando(false)
     }

@@ -940,6 +940,20 @@ app.get('/tickets', async (req: any, reply) => {
   return shapeTickets(tickets)
 })
 
+/**
+ * Um chamado pelo id. A tela guarda só os ativos; o concluído antigo sai da lista e, sem
+ * esta rota, abrir um chamado do histórico (ou um link de notificação velho) mostrava
+ * "chamado não encontrado".
+ */
+app.get('/tickets/:id', async (req: any, reply) => {
+  const u = await guard(req, reply, 'ver_chamados')
+  if (!u) return
+  const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
+  if (!t || t.canceledAt) return reply.code(404).send()
+  if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  return (await shapeTickets([t]))[0]
+})
+
 app.post('/tickets', async (req: any, reply) => {
   const u = await guard(req, reply, 'criar_chamados')
   if (!u) return
@@ -1953,11 +1967,22 @@ app.get('/health', async () => ({ ok: true, versao: process.env.npm_package_vers
 
 // ----------------------------- boot -----------------------------
 
-const port = Number(process.env.PORT || 3002)
-app.listen({ port, host: '0.0.0.0' }).then(async () => {
-  console.log(`[api-chamados] rodando em http://localhost:${port}`)
+/** Permissões, perfis, trava da auditoria, pasta de uploads e chaves do push. */
+export async function prepararDados() {
   await enforceAuditImmutability()
   await ensureBaseData().catch((e) => console.error('[bootstrap] falha ao garantir dados base:', e))
   await ensureUploadDir()
   await initVapid()
-})
+}
+
+// Em teste o app é exportado e as requisições entram por `app.inject()` — sem porta,
+// sem servidor de verdade.
+if (process.env.NODE_ENV !== 'test') {
+  const port = Number(process.env.PORT || 3002)
+  app.listen({ port, host: '0.0.0.0' }).then(async () => {
+    console.log(`[api-chamados] rodando em http://localhost:${port}`)
+    await prepararDados()
+  })
+}
+
+export { app }

@@ -10,6 +10,9 @@ que precisa mudar para sair do papel.
 Ordenado pelo que mais muda o dia da operação. Cada item diz o problema primeiro; sem
 problema claro, a ideia não vale o código.
 
+> **Já construídos** (18/09/2026): uso sem sinal (fila de envio), backup do banco e das
+> fotos, e os testes das regras que não podem quebrar. A numeração abaixo pulou esses três.
+
 ### 1. Comprovação do atendimento (assinatura e anexos que não são foto)
 
 **Problema:** a única prova do serviço é a foto e o texto do técnico. Quando o síndico
@@ -78,28 +81,6 @@ de fila, não SLA.
 
 **Muda:** cálculo no `/stats/overview` e um selo no cartão; o X fica em Configurações.
 
-### 7. Funcionar sem sinal
-
-**Problema:** subsolo, casa de máquinas, elevador. É exatamente onde o técnico está quando
-precisa registrar a ida ou a foto.
-
-**Proposta:** guardar o que foi escrito no aparelho e enviar quando a rede voltar, com aviso
-do que está pendente.
-
-**Muda:** fila de escrita no IndexedDB, reenvio no service worker e tratamento de conflito
-(o servidor ganha quando o chamado mudou no meio).
-
-### 8. Backup do banco e das fotos
-
-**Problema:** o volume do Docker guarda hash de senha, chamados e fotos de cliente. Hoje não
-existe cópia automática. Perder o volume é perder a operação inteira.
-
-**Proposta:** dump diário do SQLite + tar dos uploads para um destino fora do host,
-com aviso quando o backup falha.
-
-**Muda:** um serviço no `docker-compose.yml` com cron e destino configurável por variável
-de ambiente. Nada de credencial em arquivo versionado.
-
 ### 9. Busca global
 
 **Problema:** achar "aquele chamado do portão do Jardim" exige lembrar em qual das três
@@ -109,17 +90,6 @@ telas ele está.
 registros, com o resultado levando direto ao lugar certo.
 
 **Muda:** rota `/busca?q=` no servidor e um diálogo no front.
-
-### 10. Testes das regras que não podem quebrar
-
-**Problema:** o app já tem regras que, se quebrarem, ninguém percebe na hora: concluir sem
-solução, cancelado sumindo dos relatórios, gestor sem poder atender, horas sem duplicar em
-chamado compartilhado.
-
-**Proposta:** um punhado de testes de API (não de tela) cobrindo exatamente essas regras,
-rodando antes do deploy.
-
-**Muda:** `vitest` na API, banco SQLite temporário por execução e um passo no build.
 
 ### 11. Importar locais de planilha
 

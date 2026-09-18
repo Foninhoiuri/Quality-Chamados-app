@@ -119,6 +119,8 @@ export const api = {
   // chamados
   tickets: () => req<Ticket[]>('GET', '/tickets'),
   ticketsHistory: () => req<Ticket[]>('GET', '/tickets?history=1'),
+  /** Um chamado pelo id — inclusive os que já saíram da lista ativa. */
+  ticket: (id: string) => req<Ticket>('GET', `/tickets/${id}`),
   /** `jaRealizado` abre o chamado já concluído: serviço que o técnico fez e só agora registra. */
   createTicket: (body: Partial<Ticket> & { title: string; registroId?: string; jaRealizado?: boolean; realizadoEm?: string }) =>
     req<Ticket>('POST', '/tickets', body),

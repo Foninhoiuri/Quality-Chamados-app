@@ -4,6 +4,7 @@ import { Button, Field, Input, Modal, Select, Textarea } from './ui'
 import { PhotoInput } from './PhotoInput'
 import { api } from '@/lib/api'
 import { useStore } from '@/lib/store'
+import { ehFalhaDeRede, enfileirar } from '@/lib/fila'
 import { fmtMinutos, hojeIso } from '@/lib/utils'
 import type { ItemAtendimento, Ticket, Visita } from '@/lib/types'
 
@@ -88,21 +89,26 @@ export function AtendimentoTecnico({ t, podeEditar, onEditar, onSalvo }: {
    * corrigir depois — o que não dá é pedir formulário a quem acabou de chegar no portão.
    */
   async function marcarPonto() {
+    const agora = horaAgora()
+    const visitas = (t.visitas ?? []).map((v) => ({ ...v }))
+    if (emAndamento) {
+      const alvo = visitas.find((v) => v.id === emAndamento.id)
+      if (alvo) alvo.fim = agora
+    } else {
+      visitas.push({ data: hojeIso(), inicio: agora, fim: null, minutos: 0 })
+    }
     setMarcando(true)
     try {
-      const agora = horaAgora()
-      const visitas = (t.visitas ?? []).map((v) => ({ ...v }))
-      if (emAndamento) {
-        const alvo = visitas.find((v) => v.id === emAndamento.id)
-        if (alvo) alvo.fim = agora
-      } else {
-        visitas.push({ data: hojeIso(), inicio: agora, fim: null, minutos: 0 })
-      }
       await api.saveAtendimento(t.id, { visitas })
       onSalvo?.()
       showToast(emAndamento ? `Saída marcada às ${agora}` : `Chegada marcada às ${agora}`)
     } catch (e: any) {
-      showToast(e?.message ?? 'Não foi possível marcar a hora')
+      // Sem sinal no subsolo: a marcação fica guardada e sobe quando a rede voltar.
+      if (ehFalhaDeRede(e) && enfileirar({ metodo: 'PATCH', caminho: `/tickets/${t.id}/atendimento`, corpo: { visitas }, descricao: `ponto do ${t.code}` })) {
+        showToast(`Sem rede — a marcação das ${agora} sobe assim que a conexão voltar`)
+      } else {
+        showToast(e?.message ?? 'Não foi possível marcar a hora')
+      }
     } finally {
       setMarcando(false)
     }
@@ -263,17 +269,24 @@ export function ModalAtendimento({ t, podeConcluir, onFechar, onSalvo, onConclui
     }
     if (depois === 'concluir' && !form.solucao.trim()) return showToast('Escreva a solução antes de concluir o chamado')
 
+    const corpo = {
+      analise: form.analise, possivelSolucao: form.possivelSolucao, solucao: form.solucao, acoesTomadas: form.acoesTomadas,
+      visitas, itens, donePhotos: form.donePhotos,
+    }
     setSaving(depois === 'concluir' ? 'concluir' : 'salvar')
     try {
-      await api.saveAtendimento(t.id, {
-        analise: form.analise, possivelSolucao: form.possivelSolucao, solucao: form.solucao, acoesTomadas: form.acoesTomadas,
-        visitas, itens, donePhotos: form.donePhotos,
-      })
+      await api.saveAtendimento(t.id, corpo)
       onSalvo()
       if (depois === 'concluir') onConcluir()
       else { showToast('Atendimento salvo'); onFechar() }
     } catch (e: any) {
-      showToast(e?.message ? `Não foi possível salvar: ${e.message}` : 'Não foi possível salvar o atendimento')
+      // Sem rede, o atendimento inteiro espera na fila — não se perde o que foi digitado.
+      if (ehFalhaDeRede(e) && enfileirar({ metodo: 'PATCH', caminho: `/tickets/${t.id}/atendimento`, corpo, descricao: `atendimento do ${t.code}` })) {
+        showToast('Sem rede — o atendimento sobe assim que a conexão voltar')
+        onFechar()
+      } else {
+        showToast(e?.message ? `Não foi possível salvar: ${e.message}` : 'Não foi possível salvar o atendimento')
+      }
     } finally {
       setSaving(null)
     }
