@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
-import { Printer, Loader2, Download } from 'lucide-react'
+import { FileText, Loader2, Download, ChevronDown } from 'lucide-react'
 import { Card, PageHeader, Select, EmptyState } from '@/components/ui'
 import { useStore } from '@/lib/store'
+import { useMobile } from '@/lib/useMediaQuery'
 import { api } from '@/lib/api'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
-import { tipoRegistroDe } from '@/lib/registros'
+import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
 import type { MonthlyReport } from '@/lib/types'
 
@@ -16,6 +17,36 @@ function ultimosMeses(n = 12) {
     const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)
     return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) }
   })
+}
+
+/**
+ * No celular o relatório inteiro aberto é uma rolagem sem fim: cada bloco vira um
+ * acordeão fechado e a pessoa abre o que quer ver. No desktop continua tudo à mostra.
+ */
+function Secao({ titulo, hint, children, aberta }: { titulo: string; hint?: string; children: React.ReactNode; aberta?: boolean }) {
+  const mobile = useMobile()
+  if (!mobile) {
+    return (
+      <Card className="p-4">
+        <div className="mb-1 text-sm font-medium text-slate-200">{titulo}</div>
+        {hint && <div className="mb-3 text-[11px] text-slate-500">{hint}</div>}
+        {!hint && <div className="mb-3" />}
+        {children}
+      </Card>
+    )
+  }
+  return (
+    <details open={aberta} className="group rounded-xl border border-slate-800 bg-slate-900/50">
+      <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3">
+        <span className="text-sm font-medium text-slate-200">{titulo}</span>
+        <ChevronDown size={16} className="shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="px-4 pb-4">
+        {hint && <div className="mb-3 text-[11px] text-slate-500">{hint}</div>}
+        {children}
+      </div>
+    </details>
+  )
 }
 
 function Numero({ label, valor, sufixo, tom, hint }: { label: string; valor: string | number | null; sufixo?: string; tom?: string; hint?: string }) {
@@ -54,12 +85,17 @@ function baixarCsv(dados: MonthlyReport) {
 
 export default function Relatorios() {
   const locais = useStore((s) => s.locais)
+  const settings = useStore((s) => s.settings)
+  const showToast = useStore((s) => s.showToast)
+  const tiposRegistro = useMemo(() => parseTiposRegistro(settings), [settings])
   const meses = ultimosMeses()
   const [localId, setLocalId] = useState('')
   const [mes, setMes] = useState(meses[0].key)
   const [dados, setDados] = useState<MonthlyReport | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  const [gerandoPdf, setGerandoPdf] = useState(false)
+  const [maisNumeros, setMaisNumeros] = useState(false)
 
   useEffect(() => {
     let vivo = true
@@ -81,7 +117,7 @@ export default function Relatorios() {
         title="Relatório mensal"
         subtitle={`Chamados de ${nomeMes}${dados?.local ? ` · ${dados.local.name}` : ' · todos os locais'}`}
         actions={
-          <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={localId} onValueChange={setLocalId} aria-label="Local">
               <option value="">Todos os locais</option>
               {locais.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
@@ -89,14 +125,31 @@ export default function Relatorios() {
             <Select value={mes} onValueChange={setMes} aria-label="Mês">
               {meses.map((m) => (<option key={m.key} value={m.key}>{m.label}</option>))}
             </Select>
-            <button onClick={() => dados && baixarCsv(dados)} disabled={!dados?.lista.length} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 hover:border-red-700 hover:bg-red-500/5 disabled:opacity-40">
-              <Download size={14} /> CSV
-            </button>
-            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 hover:border-red-700 hover:bg-red-500/5">
-              <Printer size={14} /> Imprimir
-            </button>
           </div>
         }
+        menu={[
+          {
+            label: gerandoPdf ? 'Gerando PDF…' : 'Baixar PDF',
+            icon: <FileText size={15} />,
+            disabled: !dados || gerandoPdf,
+            title: 'Baixa o relatório do mês como um arquivo PDF para enviar',
+            onClick: async () => {
+              if (!dados) return
+              setGerandoPdf(true)
+              try {
+                // A biblioteca do PDF só é baixada na hora de gerar — quem só olha o
+                // relatório na tela não paga por ela.
+                const { baixarRelatorioPdf } = await import('@/lib/relatorioPdf')
+                baixarRelatorioPdf(dados, nomeMes, tiposRegistro)
+              } catch {
+                showToast('Não foi possível gerar o PDF')
+              } finally {
+                setGerandoPdf(false)
+              }
+            },
+          },
+          { label: 'Exportar CSV', icon: <Download size={15} />, disabled: !dados?.lista.length, onClick: () => dados && baixarCsv(dados) },
+        ]}
       />
 
       {carregando && !dados ? (
@@ -105,20 +158,24 @@ export default function Relatorios() {
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-6 text-center text-sm text-slate-400">{erro}</div>
       ) : dados && r ? (
         <div className={`space-y-4 ${carregando ? 'opacity-60' : ''}`}>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 xl:grid-cols-7">
             <Numero label="Chamados abertos" valor={r.abertos} />
             <Numero label="Concluídos" valor={r.concluidos} tom="#34d399" />
             <Numero label="Ainda em aberto" valor={r.emAberto} hint="dos abertos no mês" tom={r.emAberto ? '#fbbf24' : undefined} />
             <Numero label="Horas trabalhadas" valor={fmtMinutos(r.minutosTrabalhados)} hint={`${r.visitas} ida(s) ao local`} />
-            <Numero label="Tempo médio" valor={r.mediaHoras} sufixo="h" hint="abertura → conclusão" />
-            <Numero label="Registros" valor={r.registros} hint={dados.registrosPorTipo.filter((x) => x.total).map((x) => `${x.total} ${tipoRegistroDe(x.tipo).label.toLowerCase()}`).join(' · ') || 'nenhum no mês'} />
-            <Numero label="Itens usados" valor={dados.itens.reduce((s, i) => s + i.quantidade, 0)} hint={dados.itens.some((i) => i.valorTotal) ? `R$ ${dados.itens.reduce((s, i) => s + i.valorTotal, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'nos concluídos'} />
+            {/* Os três de baixo só aparecem com espaço — no celular ficam atrás do "mais números". */}
+            <div className={`contents ${maisNumeros ? '' : 'hidden md:contents'}`}>
+              <Numero label="Tempo médio" valor={r.mediaHoras} sufixo="h" hint="abertura → conclusão" />
+              <Numero label="Registros" valor={r.registros} hint={dados.registrosPorTipo.filter((x) => x.total).map((x) => `${x.total} ${tipoRegistroDe(tiposRegistro, x.tipo).label.toLowerCase()}`).join(' · ') || 'nenhum no mês'} />
+              <Numero label="Itens usados" valor={dados.itens.reduce((s, i) => s + i.quantidade, 0)} hint={dados.itens.some((i) => i.valorTotal) ? `R$ ${dados.itens.reduce((s, i) => s + i.valorTotal, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'nos concluídos'} />
+            </div>
           </div>
+          <button onClick={() => setMaisNumeros((v) => !v)} className="-mt-1 w-full rounded-lg border border-slate-800 py-2 text-[12px] text-slate-400 hover:text-slate-200 md:hidden">
+            {maisNumeros ? 'Menos números' : 'Mais números'}
+          </button>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="p-4">
-              <div className="mb-1 text-sm font-medium text-slate-200">Horas trabalhadas por técnico</div>
-              <div className="mb-3 text-[11px] text-slate-500">Soma das idas ao local com data neste mês.</div>
+            <Secao titulo="Horas trabalhadas por técnico" hint="Soma das idas ao local com data neste mês." aberta>
               {dados.horasPorTecnico.length === 0 ? (
                 <div className="py-6 text-center text-[12px] text-slate-600">Nenhuma hora registrada no período.</div>
               ) : (
@@ -156,11 +213,9 @@ export default function Relatorios() {
                   </div>
                 </>
               )}
-            </Card>
+            </Secao>
 
-            <Card className="p-4">
-              <div className="mb-1 text-sm font-medium text-slate-200">Itens trocados e comprados</div>
-              <div className="mb-3 text-[11px] text-slate-500">Dos chamados concluídos no mês.</div>
+            <Secao titulo="Itens trocados e comprados" hint="Dos chamados concluídos no mês.">
               {dados.itens.length === 0 ? (
                 <div className="py-6 text-center text-[12px] text-slate-600">Nenhum item registrado.</div>
               ) : (
@@ -185,11 +240,10 @@ export default function Relatorios() {
                   </tbody>
                 </table>
               )}
-            </Card>
+            </Secao>
           </div>
 
-          <Card className="p-4">
-            <div className="mb-3 text-sm font-medium text-slate-200">Por dia</div>
+          <Secao titulo="Por dia">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={dados.porDia} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -201,20 +255,18 @@ export default function Relatorios() {
                 <Bar name={SERIE.concluidos.label} dataKey="concluidos" fill={SERIE.concluidos.color} radius={[3, 3, 0, 0]} maxBarSize={10} />
               </BarChart>
             </ResponsiveContainer>
-          </Card>
+          </Secao>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="p-4">
-              <div className="mb-3 text-sm font-medium text-slate-200">Situação atual dos abertos no mês</div>
+            <Secao titulo="Situação atual dos abertos no mês">
               <div className="flex flex-wrap gap-1.5">
                 {dados.porStatus.map((s) => (
                   <span key={s.label} className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{s.label}: <span className="font-medium tabular-nums text-slate-100">{s.total}</span></span>
                 ))}
               </div>
-            </Card>
+            </Secao>
 
-            <Card className="p-4">
-              <div className="mb-3 text-sm font-medium text-slate-200">Concluídos por técnico</div>
+            <Secao titulo="Concluídos por técnico">
               {dados.porResponsavel.length === 0 ? (
                 <div className="py-6 text-center text-[12px] text-slate-600">Nenhum chamado concluído no período.</div>
               ) : (
@@ -250,18 +302,40 @@ export default function Relatorios() {
                   </div>
                 </>
               )}
-            </Card>
+            </Secao>
           </div>
 
           <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
               <div className="text-sm font-medium text-slate-200">Chamados do período</div>
-              <span className="text-[11px] text-slate-500">{dados.lista.length} chamado(s) abertos, concluídos ou atendidos no mês</span>
+              <span className="text-[11px] text-slate-500">{dados.lista.length} no mês</span>
             </div>
             {dados.lista.length === 0 ? (
               <div className="p-4"><EmptyState>Nenhum chamado neste período.</EmptyState></div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Celular: cada chamado é um bloco, não uma linha de sete colunas. */}
+                <div className="divide-y divide-slate-800/60 md:hidden">
+                  {dados.lista.map((t) => (
+                    <div key={t.id} className="px-4 py-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="font-mono text-[10px] text-slate-500">{t.code}</span>
+                          <span className="block truncate text-[13px] text-slate-100">{t.title}</span>
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${t.concluido ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>{t.status}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
+                        {t.local && <span>{t.local}</span>}
+                        {t.responsavel && <span>{t.responsavel}</span>}
+                        {!!t.minutosNoMes && <span>{fmtMinutos(t.minutosNoMes)}</span>}
+                        <span className="font-mono">{fmtDataHora(t.criadoEm)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="hidden overflow-x-auto md:block">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-800 text-left text-[11px] uppercase tracking-wide text-slate-400">
@@ -294,11 +368,13 @@ export default function Relatorios() {
                     })}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             )}
           </Card>
         </div>
       ) : null}
+
     </div>
   )
 }

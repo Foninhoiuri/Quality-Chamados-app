@@ -75,9 +75,17 @@ export async function ensureBaseData() {
     {
       key: 'ticket_statuses',
       value: JSON.stringify([
-        { key: 'aberto', label: 'Aberto' },
-        { key: 'andamento', label: 'Em atendimento' },
-        { key: 'resolvido', label: 'Concluído', done: true },
+        { key: 'aberto', label: 'Aberto', fase: 'aberto' },
+        { key: 'andamento', label: 'Em atendimento', fase: 'andamento' },
+        { key: 'resolvido', label: 'Concluído', done: true, fase: 'concluido' },
+      ]),
+    },
+    {
+      key: 'registro_tipos',
+      value: JSON.stringify([
+        { key: 'ocorrencia', label: 'Ocorrência', color: '#fbbf24' },
+        { key: 'solicitacao', label: 'Solicitação', color: '#38bdf8' },
+        { key: 'informacao', label: 'Informação', color: '#a1a1aa' },
       ]),
     },
   ]

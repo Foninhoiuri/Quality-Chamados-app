@@ -46,6 +46,8 @@ model User {
   mustChangePassword Boolean      @default(false) // primeiro acesso / após reset
   phone              String?
   avatar             String? // caminho /uploads/... da foto de perfil
+  // Sobre o que este usuário quer ser avisado. JSON {evento: boolean}; vazio = tudo ligado.
+  notifPrefs         String       @default("")
   lastAccess         String?
   pushSubs           PushSubscription[]
   notifications      Notification[]
@@ -85,8 +87,13 @@ model Local {
   name      String
   city      String   @default("")
   address   String   @default("")
+  // CEP é o atalho do cadastro: com ele o resto do endereço vem preenchido.
+  cep       String   @default("")
   phone     String   @default("")
   note      String   @default("")
+  // Coordenadas do pino no mapa. Vêm do endereço (geocodificação) ou digitadas à mão.
+  lat       Float?
+  lng       Float?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   tickets   Ticket[]
@@ -110,6 +117,9 @@ model Ticket {
   // Técnico que PEGOU o chamado da fila. Não existe atribuição: nulo = na fila.
   assigneeId    String?
   assigneeName  String?
+  // Técnicos de apoio: acompanham o chamado, mas quem preenche o atendimento é o responsável.
+  // JSON [{id, name}].
+  sharedWith    String    @default("[]")
   photos        String    @default("[]") // caminhos das fotos de abertura (JSON)
   donePhotos    String    @default("[]") // caminhos das fotos de finalização (JSON)
   // ---- atendimento técnico (preenchido por quem pegou o chamado) ----
@@ -124,6 +134,11 @@ model Ticket {
   itens         String    @default("[]")
   resolvedAt    DateTime? // quando entrou no status de conclusão
   archivedAt    DateTime? // finalizado à mão (vai para o histórico sem esperar a semana)
+  // Cancelado: sai do quadro e do histórico. O que foi escrito fica na auditoria.
+  canceledAt     DateTime?
+  canceledById   String?
+  canceledByName String?
+  cancelReason   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   comments      TicketComment[]
@@ -147,9 +162,11 @@ model TicketComment {
 model Registro {
   id          String   @id @default(cuid())
   ocorridoEm  DateTime @default(now()) // data e hora do acontecimento (editável)
-  tipo        String   @default("ocorrencia") // ocorrencia | solicitacao | informacao
+  tipo        String   @default("ocorrencia") // chave de uma das categorias do setting `registro_tipos`
   solicitante String? // quem solicitou / quem avisou
-  descricao   String
+  // Título é o que se lê na lista; a descrição é opcional, para quando o título não basta.
+  titulo      String   @default("")
+  descricao   String   @default("")
   localId     String?
   local       Local?   @relation(fields: [localId], references: [id], onDelete: SetNull)
   autorId     String?

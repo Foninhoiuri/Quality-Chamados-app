@@ -1,11 +1,12 @@
 import { useEffect, type ReactElement } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
 import { Loader2, Lock } from 'lucide-react'
 import { Layout } from './components/Layout'
 import Login from './components/Login'
 import Setup from './components/Setup'
 import ForcePasswordChange from './components/ForcePasswordChange'
 import { useStore, useCan, usePerms } from './lib/store'
+import { FASES, faseDoTicket, parseStatuses } from './lib/tickets'
 import Dashboard from './pages/Dashboard'
 import Chamados from './pages/Chamados'
 import Relatorios from './pages/Relatorios'
@@ -29,11 +30,28 @@ function Guarded({ perm, children }: { perm: string; children: ReactElement }) {
   )
 }
 
+/**
+ * `/chamados?t=<id>` é o link que as notificações e os registros usam. Como o chamado
+ * agora mora na tela da fase dele, o destino certo só se sabe com o chamado em mãos.
+ */
+function ParaOChamado() {
+  const [params] = useSearchParams()
+  const settings = useStore((s) => s.settings)
+  const tickets = useStore((s) => s.tickets)
+  const id = params.get('t')
+  const t = id ? tickets.find((x) => x.id === id) : null
+  const fase = t ? faseDoTicket(parseStatuses(settings), t) : 'aberto'
+  const rota = FASES.find((f) => f.id === fase)?.rota ?? '/abertos'
+  // Chamado que não está mais na lista ativa (arquivado): a tela de concluídos o tem.
+  const destino = id && !t ? '/concluidos' : rota
+  return <Navigate to={`${destino}${id ? `?t=${id}` : ''}`} replace />
+}
+
 /** Página inicial: dashboard para quem pode; senão, direto para os chamados. */
 function Inicio() {
   const perms = usePerms()
   if (perms.has('ver_dashboard')) return <Dashboard />
-  if (perms.has('ver_chamados')) return <Navigate to="/chamados" replace />
+  if (perms.has('ver_chamados')) return <Navigate to="/abertos" replace />
   return <Navigate to="/configuracoes" replace />
 }
 
@@ -75,7 +93,13 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Inicio />} />
-        <Route path="/chamados" element={<Guarded perm="ver_chamados"><Chamados /></Guarded>} />
+        {/* Uma tela por fase do chamado. `/chamados` e `/arquivados` continuam valendo
+            (links antigos, notificações) e caem na tela certa. */}
+        <Route path="/abertos" element={<Guarded perm="ver_chamados"><Chamados fase="aberto" /></Guarded>} />
+        <Route path="/andamento" element={<Guarded perm="ver_chamados"><Chamados fase="andamento" /></Guarded>} />
+        <Route path="/concluidos" element={<Guarded perm="ver_chamados"><Chamados fase="concluido" /></Guarded>} />
+        <Route path="/chamados" element={<ParaOChamado />} />
+        <Route path="/arquivados" element={<Navigate to="/concluidos" replace />} />
         <Route path="/registros" element={<Guarded perm="ver_registros"><Registros /></Guarded>} />
         <Route path="/relatorios" element={<Guarded perm="ver_relatorios"><Relatorios /></Guarded>} />
         <Route path="/locais" element={<Guarded perm="ver_locais"><Locais /></Guarded>} />

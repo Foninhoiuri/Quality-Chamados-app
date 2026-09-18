@@ -4,6 +4,7 @@ import { useStore, useCurrentUser } from '@/lib/store'
 import { notifStatus, requestNotifPermission, showNotification, isIOS, isStandalone, type NotifStatus } from '@/lib/notifications'
 import { api } from '@/lib/api'
 import { pushSupported, isPushSubscribed, enablePush, disablePush } from '@/lib/push'
+import type { EventoNotificacao } from '@/lib/types'
 
 const CHAVE_VISTO = (userId: string) => `chamados-notif-visto:${userId}`
 const MAX_POPUPS = 5
@@ -95,6 +96,64 @@ export function NotificationsSetup() {
         </button>
       )}
       {status === 'granted' && <PushToggle />}
+      <PreferenciasNotificacao />
+    </div>
+  )
+}
+
+/**
+ * Sobre O QUE avisar. Vale para o sino, o pop-up e o push — o filtro é do servidor, então
+ * o que está desligado aqui não chega por caminho nenhum.
+ */
+function PreferenciasNotificacao() {
+  const me = useCurrentUser()
+  const updateProfile = useStore((s) => s.updateProfile)
+  const showToast = useStore((s) => s.showToast)
+  const [eventos, setEventos] = useState<EventoNotificacao[] | null>(null)
+  const [salvando, setSalvando] = useState<string | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    api.notifEvents().then((r) => { if (vivo) setEventos(r) }).catch(() => { if (vivo) setEventos([]) })
+    return () => { vivo = false }
+  }, [])
+
+  const prefs = me?.notifPrefs ?? {}
+  const ligado = (id: string) => prefs[id] !== false
+
+  async function alternar(id: string) {
+    const proximo = { ...prefs, [id]: !ligado(id) }
+    setSalvando(id)
+    try { await updateProfile({ notifPrefs: proximo }) } catch { showToast('Não foi possível salvar a preferência') } finally { setSalvando(null) }
+  }
+
+  if (!eventos?.length) return null
+  const desligados = eventos.filter((e) => !ligado(e.id)).length
+
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-[13px] text-slate-200"><Bell size={15} className="text-slate-400" /> Sobre o que me avisar</span>
+        {desligados > 0 && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">{desligados} desligado(s)</span>}
+      </div>
+      <div className="space-y-1">
+        {eventos.map((e) => (
+          <div key={e.id} className="flex items-center justify-between gap-3 py-0.5">
+            <span className={`text-[12px] ${ligado(e.id) ? 'text-slate-300' : 'text-slate-500 line-through'}`}>{e.label}</span>
+            <button
+              role="switch"
+              aria-checked={ligado(e.id)}
+              aria-label={e.label}
+              onClick={() => alternar(e.id)}
+              disabled={salvando === e.id}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${ligado(e.id) ? 'bg-red-600' : 'bg-slate-700'}`}
+            >
+              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${ligado(e.id) ? 'left-4' : 'left-0.5'}`} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500">Vale para o sino, o pop-up e o push. Desligado aqui, não chega por nenhum deles.</p>
     </div>
   )
 }

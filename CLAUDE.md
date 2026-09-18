@@ -26,3 +26,27 @@ imagens Docker próprios. Mudanças aqui não devem exigir mudanças no NOC, e v
   técnico pega (`/tickets/:id/accept`) ou devolve (`/tickets/:id/release`).
 - Chamado não conclui sem `solucao` preenchida no atendimento técnico.
 - Horas trabalhadas vêm das idas ao local (`visitas`), contadas pela data da ida.
+- **Três fases, três telas**: cada status tem uma `fase` (`aberto` | `andamento` | `concluido`) no
+  setting `ticket_statuses`. `aberto` e `concluido` têm UMA coluna cada e não se mexem; colunas novas
+  só entram em `andamento`. Config antiga sem `fase` é lida pela posição (ver `comFase`).
+- **Categorias de registro** vêm do setting `registro_tipos` (nome + cor). Categoria apagada não apaga
+  registro: o que estava nela passa para a primeira da lista.
+- Registro tem **título** obrigatório e descrição opcional. Os registros antigos, sem título, usam a
+  primeira linha da descrição — não reescreva isso no banco.
+- O pino do mapa dos locais vem do **Nominatim (OpenStreetMap)**, chamado pelo servidor. É melhor-
+  esforço: sem internet ou sem resultado, o local fica sem pino e o botão “Localizar no mapa” tenta de
+  novo. Nunca deixe a falha derrubar o cadastro do local.
+- **Uma ação por cartão**: o que aparece é a próxima etapa da fase (pegar → próxima coluna →
+  finalizar). Não voltar a pôr seletor de "mover para" — obriga a pessoa a escolher entre colunas
+  que ela não conhece. Depois da ação, navegue para a tela da fase nova (`irParaFase`).
+- O atendimento técnico é preenchido em **modal por cima** do chamado, com as ações no rodapé fixo.
+  O alvo é o celular: botão grande, ao alcance do polegar, conteúdo rolando por baixo.
+- **Gestor não mexe em chamado**: ele acompanha. No módulo Chamados tem o mesmo alcance do
+  Operador (ver, abrir, comentar, anexar) mais o histórico. Não pega, não move, não atende, não
+  conclui, não compartilha e não cancela. Ver `FORA_DO_GESTOR` em `permissions-def.ts`.
+- **Compartilhar não divide o atendimento**: quem está junto (`sharedWith`) acompanha e é avisado;
+  quem preenche análise, solução, horas e itens continua sendo o responsável que pegou o chamado.
+- **Cancelado só existe na auditoria**: o chamado some do quadro, do histórico, do dashboard e dos
+  relatórios. A linha da auditoria é que guarda título, relato, quem abriu, quem cancelou e o motivo.
+- Data de abertura/conclusão só se edita com `ajustar_datas_chamado`. A exceção é o serviço já
+  realizado, em que o próprio técnico data o que ele mesmo fez (limite de 90 dias).

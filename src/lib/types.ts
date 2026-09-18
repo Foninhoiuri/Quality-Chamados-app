@@ -2,11 +2,18 @@
 // criar outras na tela de chamados; por isso o tipo é `string`.
 export type TicketStatus = string
 
+/**
+ * Fase do chamado — é o que separa as três telas. `aberto` e `concluido` têm uma coluna
+ * cada, fixas; `andamento` é a única que aceita mais colunas (aguardando peça, cliente…).
+ */
+export type FaseChamado = 'aberto' | 'andamento' | 'concluido'
+
 /** Definição de um status (setting `ticket_statuses`). `done` = coluna de conclusão. */
 export interface TicketStatusDef {
   key: string
   label: string
   done?: boolean
+  fase?: FaseChamado
 }
 
 export interface Ticket {
@@ -23,6 +30,8 @@ export interface Ticket {
   createdByName: string
   assigneeId?: string | null
   assigneeName?: string | null
+  /** Técnicos de apoio: acompanham o chamado; quem preenche o atendimento é o responsável. */
+  sharedWith?: TecnicoRef[]
   photos?: string[]
   donePhotos?: string[]
   // atendimento técnico
@@ -36,8 +45,16 @@ export interface Ticket {
   commentCount?: number
   resolvedAt?: string | null
   archivedAt?: string | null
+  canceledAt?: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** Técnico como ele aparece dentro do chamado (compartilhamento) e na lista de escolha. */
+export interface TecnicoRef {
+  id: string
+  name: string
+  avatar?: string | null
 }
 
 /** Ida ao local. Com início e saída o servidor calcula `minutos`; sem eles, vale o informado. */
@@ -59,13 +76,23 @@ export interface ItemAtendimento {
   valor?: number | null
 }
 
-export type TipoRegistro = 'ocorrencia' | 'solicitacao' | 'informacao'
+/** A chave da categoria; as categorias em si são configuráveis (setting `registro_tipos`). */
+export type TipoRegistro = string
+
+/** Categoria de registro: nome e cor, gerenciáveis na tela de Registros. */
+export interface TipoRegistroDef {
+  key: string
+  label: string
+  color: string
+}
 
 export interface Registro {
   id: string
   ocorridoEm: string
   tipo: TipoRegistro
   solicitante?: string | null
+  /** O que se lê na lista. A descrição é opcional — nem todo registro precisa de mais. */
+  titulo: string
   descricao: string
   localId?: string | null
   localName?: string
@@ -91,9 +118,17 @@ export interface Local {
   name: string
   city: string
   address: string
+  cep: string
   phone: string
   note: string
+  /** Coordenadas do pino no mapa — vêm do endereço, quando ele é encontrado. */
+  lat?: number | null
+  lng?: number | null
+  /** Contagens do local: em aberto agora, quantos desses já têm técnico, e o total de sempre. */
   ticketCount?: number
+  ticketsAtivos?: number
+  ticketsAndamento?: number
+  ticketsTotal?: number
   createdAt: string
 }
 
@@ -128,7 +163,24 @@ export interface User {
   avatar?: string | null
   mustChangePassword?: boolean
   password?: string // só em formulário; o servidor nunca devolve senha
+  /** Eventos de notificação desligados por este usuário. Ausente = recebe. */
+  notifPrefs?: Record<string, boolean>
   lastAccess?: string | null
+}
+
+/** Uma sugestão de endereço (autocomplete do cadastro de local). */
+export interface SugestaoEndereco {
+  descricao: string
+  address: string
+  city: string
+  lat: number
+  lng: number
+}
+
+/** Evento de notificação que o usuário pode ligar ou desligar (vem de GET /notifications/events). */
+export interface EventoNotificacao {
+  id: string
+  label: string
 }
 
 export type LogAction = 'criar' | 'editar' | 'excluir' | 'login'
@@ -146,6 +198,14 @@ export interface LogEntry {
   detail?: string
 }
 
+/** Retorno de GET /novidades: o instante do fato mais recente de cada área. */
+export interface Novidades {
+  abertos: number
+  andamento: number
+  concluidos: number
+  registros: number
+}
+
 /** Retorno de GET /stats/overview. */
 export interface Overview {
   ativos: number
@@ -154,8 +214,19 @@ export interface Overview {
   emAtendimento: number
   meus: number
   concluidos7d: number
-  serie14d: { dia: string; abertos: number; concluidos: number }[]
-  porStatus: { key: string; label: string; total: number }[]
+  /** Concluídos dentro da janela escolhida (7, 15 ou 30 dias). */
+  concluidosJanela: number
+  janelaDias: number
+  /** Cada número na janela atual e na anterior, do mesmo tamanho — é o que permite comparar. */
+  comparativo: {
+    abertos: { atual: number; anterior: number }
+    concluidos: { atual: number; anterior: number }
+    tempoMedio: { atual: number | null; anterior: number | null }
+    minutosTrabalhados: { atual: number; anterior: number }
+  }
+  serie: { dia: string; abertos: number; concluidos: number }[]
+  /** Situação dos chamados abertos dentro da janela — a soma é o total do período. */
+  porStatus: { key: string; label: string; fase: FaseChamado; total: number }[]
   fila: Ticket[]
   ultimosRegistros: Registro[]
 }

@@ -45,16 +45,56 @@ export async function sendPush(userIds: (string | null | undefined)[], payload: 
   }))
 }
 
+/**
+ * Eventos que geram aviso. Cada usuário liga/desliga o que quer receber em
+ * Configurações → Notificações (campo `notifPrefs`); o que não está no JSON vem ligado.
+ * Ids estáveis: são a chave das preferências guardadas.
+ */
+export const EVENTOS = [
+  { id: 'chamado_novo', label: 'Chamado novo na fila' },
+  { id: 'chamado_pego', label: 'Um técnico pegou o chamado' },
+  { id: 'chamado_fila', label: 'Chamado devolvido à fila' },
+  { id: 'chamado_status', label: 'Mudança de status / conclusão' },
+  { id: 'chamado_comentario', label: 'Comentário no chamado' },
+  { id: 'chamado_compartilhado', label: 'Compartilharam um chamado comigo' },
+  { id: 'chamado_cancelado', label: 'Chamado cancelado' },
+] as const
+
+export type EventoNotificacao = (typeof EVENTOS)[number]['id']
+
+/** Preferências de um usuário. JSON inválido ou vazio = tudo ligado. */
+export function parsePrefs(raw?: string | null): Record<string, boolean> {
+  if (!raw) return {}
+  try {
+    const o = JSON.parse(raw)
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {}
+  } catch {
+    return {}
+  }
+}
+export const querReceber = (prefs: Record<string, boolean>, evento?: string) => (evento ? prefs[evento] !== false : true)
+
+/** Dos ids passados, os que não desligaram este evento. */
+async function filtrarPorPreferencia(ids: string[], evento?: string): Promise<string[]> {
+  if (!evento || ids.length === 0) return ids
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, notifPrefs: true } })
+  const off = new Set(users.filter((u) => !querReceber(parsePrefs(u.notifPrefs), evento)).map((u) => u.id))
+  return ids.filter((id) => !off.has(id))
+}
+
 export interface Aviso {
   kind: 'ticket' | 'system'
   title: string
   body?: string
   url?: string
+  /** Qual evento é este aviso — respeita o que o usuário desligou. Sem evento, sempre envia. */
+  event?: EventoNotificacao
 }
 
 /** Grava no sino de cada usuário e, se `push`, dispara também o web push. Nunca lança. */
 export async function announce(userIds: (string | null | undefined)[], n: Aviso, opts: { push?: boolean } = {}) {
-  const ids = [...new Set(userIds.filter(Boolean) as string[])]
+  const todos = [...new Set(userIds.filter(Boolean) as string[])]
+  const ids = await filtrarPorPreferencia(todos, n.event).catch(() => todos)
   if (ids.length === 0) return
   try {
     await prisma.notification.createMany({

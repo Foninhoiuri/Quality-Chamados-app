@@ -27,10 +27,14 @@ export const PERMISSIONS: PermDef[] = [
   { id: 'corrigir_atendimento', label: 'Corrigir atendimento e devolver chamado de outro técnico', module: 'Chamados' },
   { id: 'concluir_chamados', label: 'Concluir chamados', module: 'Chamados' },
   { id: 'reabrir_chamados', label: 'Reabrir chamados concluídos', module: 'Chamados' },
+  { id: 'cancelar_chamados', label: 'Cancelar chamados de outras pessoas', module: 'Chamados' },
+  { id: 'compartilhar_chamados', label: 'Compartilhar chamado com outro técnico', module: 'Chamados' },
+  { id: 'ajustar_datas_chamado', label: 'Editar datas e horas do chamado (lançamento retroativo)', module: 'Chamados' },
+  { id: 'ver_arquivados', label: 'Ver o histórico de chamados arquivados', module: 'Chamados' },
   { id: 'excluir_chamados', label: 'Excluir chamados', module: 'Chamados' },
   { id: 'anexar_fotos_chamado', label: 'Anexar fotos aos chamados', module: 'Chamados' },
   { id: 'comentar_chamados', label: 'Comentar em chamados', module: 'Chamados' },
-  { id: 'gerenciar_status_chamados', label: 'Gerenciar colunas do quadro', module: 'Chamados' },
+  { id: 'gerenciar_status_chamados', label: 'Gerenciar colunas do quadro e categorias de registro', module: 'Chamados' },
   // Registros
   { id: 'ver_registros', label: 'Ver registros (linha do tempo)', module: 'Registros' },
   { id: 'criar_registros', label: 'Criar registros', module: 'Registros' },
@@ -54,24 +58,37 @@ export const ALL_PERMS = PERMISSIONS.map((p) => p.id)
 /**
  * Quatro perfis:
  * - Administrador: tudo, inclusive usuários, perfis e sistema (papel de sistema, id `role-admin`).
- * - Gestor: coordena a operação — todos os chamados, relatórios, locais, registros e
- *   usuários; corrige atendimentos. Não mexe em perfis/permissões nem em configuração de sistema.
- * - Técnico: pega o chamado da fila, preenche o atendimento (análise, solução, horas, itens) e conclui.
+ * - Gestor: ACOMPANHA a operação — vê tudo, abre chamado, comenta e cuida de relatórios,
+ *   locais, registros e usuários. No chamado em si tem o mesmo alcance do Operador: não
+ *   pega, não move, não atende, não conclui e não cancela chamado de ninguém.
+ * - Técnico: pega o chamado da fila, preenche o atendimento (análise, solução, horas, itens),
+ *   conclui, compartilha com outro técnico e lança serviço já realizado.
  * - Operador: atendente — abre chamado, relata, anexa foto, define local e faz registros.
  *
  * Não existe atribuição de responsável: o chamado entra na fila e o técnico pega.
  */
 const SO_ADMIN = new Set(['gerenciar_papeis', 'admin_sistema'])
 
+/**
+ * O que o Gestor NÃO tem: tudo que é mexer no chamado. Ele acompanha e abre chamado como
+ * um Operador — quem toca no atendimento é o técnico que pegou (e o administrador corrige).
+ */
+const FORA_DO_GESTOR = new Set([
+  'gerenciar_chamados', 'aceitar_chamados', 'registrar_atendimento', 'corrigir_atendimento',
+  'concluir_chamados', 'reabrir_chamados', 'excluir_chamados', 'cancelar_chamados',
+  'compartilhar_chamados', 'ajustar_datas_chamado', 'gerenciar_status_chamados',
+])
+
 export const ROLES: { id: string; name: string; color: string; system?: boolean; permissions: string[] }[] = [
   { id: 'role-admin', name: 'Administrador', color: '#ef4444', system: true, permissions: [...ALL_PERMS] },
-  { id: 'role-gestor', name: 'Gestor', color: '#f59e0b', permissions: ALL_PERMS.filter((p) => !SO_ADMIN.has(p)) },
+  { id: 'role-gestor', name: 'Gestor', color: '#f59e0b', permissions: ALL_PERMS.filter((p) => !SO_ADMIN.has(p) && !FORA_DO_GESTOR.has(p)) },
   {
     id: 'role-tecnico', name: 'Técnico', color: '#38bdf8',
     permissions: [
       'ver_dashboard', 'ver_locais',
-      'ver_chamados', 'ver_todos_chamados', 'gerenciar_chamados', 'aceitar_chamados', 'registrar_atendimento',
-      'concluir_chamados', 'anexar_fotos_chamado', 'comentar_chamados',
+      'ver_chamados', 'ver_todos_chamados', 'criar_chamados', 'gerenciar_chamados', 'aceitar_chamados',
+      'registrar_atendimento', 'concluir_chamados', 'compartilhar_chamados', 'anexar_fotos_chamado',
+      'comentar_chamados', 'ver_arquivados',
       'ver_registros', 'criar_registros',
     ],
   },
@@ -92,4 +109,4 @@ export const ROLES_ANTIGOS = ['role-solicitante', 'role-leitura']
  * Sobe quando a definição dos perfis-semente muda de forma que precisa ser aplicada
  * por inteiro (não só somando permissão nova). Ver bootstrap.ts.
  */
-export const ROLES_VERSAO = '3'
+export const ROLES_VERSAO = '4'

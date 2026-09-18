@@ -5,7 +5,7 @@ import { useStore } from '@/lib/store'
 import { imagemParaDataUrl } from '@/lib/utils'
 
 /** Grade de fotos com upload (câmera no celular) e remoção. Somente leitura se `onChange` ausente. */
-export function PhotoInput({ photos, onChange, max = 6 }: { photos: string[]; onChange?: (p: string[]) => void; max?: number }) {
+export function PhotoInput({ photos, onChange, max = 12 }: { photos: string[]; onChange?: (p: string[]) => void; max?: number }) {
   const ref = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState<string | null>(null)
@@ -43,6 +43,7 @@ export function PhotoInput({ photos, onChange, max = 6 }: { photos: string[]; on
             )}
           </div>
         ))}
+        {onChange && photos.length >= max && <span className="self-center text-[11px] text-slate-600">máximo de {max} fotos</span>}
         {onChange && photos.length < max && (
           <button type="button" onClick={() => ref.current?.click()} disabled={busy} className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed border-slate-700 text-slate-500 hover:border-red-700 hover:text-slate-300 disabled:opacity-50" aria-label="Adicionar foto">
             {busy ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}

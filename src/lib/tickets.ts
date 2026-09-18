@@ -1,18 +1,43 @@
-import type { TicketStatusDef } from './types'
+import type { FaseChamado, Ticket, TicketStatusDef } from './types'
 
 export const DEFAULT_STATUSES: TicketStatusDef[] = [
-  { key: 'aberto', label: 'Aberto' },
-  { key: 'andamento', label: 'Em atendimento' },
-  { key: 'resolvido', label: 'Concluído', done: true },
+  { key: 'aberto', label: 'Aberto', fase: 'aberto' },
+  { key: 'andamento', label: 'Em atendimento', fase: 'andamento' },
+  { key: 'resolvido', label: 'Concluído', done: true, fase: 'concluido' },
 ]
+
+export const FASES: { id: FaseChamado; label: string; rota: string }[] = [
+  { id: 'aberto', label: 'Abertos', rota: '/abertos' },
+  { id: 'andamento', label: 'Em andamento', rota: '/andamento' },
+  { id: 'concluido', label: 'Concluídos', rota: '/concluidos' },
+]
+
+/**
+ * Dá fase a uma lista de status. Config antiga (sem `fase`) é lida pela posição: a
+ * primeira coluna é a entrada, a de conclusão é o fim, e tudo entre as duas é andamento.
+ */
+export function comFase(lista: TicketStatusDef[]): TicketStatusDef[] {
+  const iDone = lista.findIndex((s) => s.done)
+  return lista.map((s, i) => ({
+    ...s,
+    fase: s.fase ?? (i === 0 ? 'aberto' : s.done || (iDone < 0 && i === lista.length - 1) ? 'concluido' : 'andamento'),
+  }))
+}
 
 /** Status vêm do setting `ticket_statuses` (customizáveis); o padrão é a rede de segurança. */
 export function parseStatuses(settings: Record<string, string>): TicketStatusDef[] {
   try {
     const a = JSON.parse(settings['ticket_statuses'] || '')
-    if (Array.isArray(a) && a.length) return a
+    if (Array.isArray(a) && a.length) return comFase(a)
   } catch { /* usa o padrão */ }
   return DEFAULT_STATUSES
+}
+
+export const statusesDaFase = (lista: TicketStatusDef[], fase: FaseChamado) => lista.filter((s) => s.fase === fase)
+
+/** Em que fase está este chamado. Status sumido (coluna apagada) cai na entrada. */
+export function faseDoTicket(lista: TicketStatusDef[], t: Ticket): FaseChamado {
+  return lista.find((s) => s.key === t.status)?.fase ?? 'aberto'
 }
 
 /** ISO do servidor → valor aceito pelo `datetime-local` (no fuso de quem olha). */

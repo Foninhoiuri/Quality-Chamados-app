@@ -1,4 +1,4 @@
-import type { Local, LogEntry, MonthlyReport, Notification, Overview, Registro, Role, Ticket, TicketComment, User } from './types'
+import type { EventoNotificacao, Local, LogEntry, MonthlyReport, Notification, Novidades, Overview, Registro, Role, SugestaoEndereco, Ticket, TecnicoRef, TicketComment, User } from './types'
 import type { PermissionDef } from './permissions'
 
 // Base da API: `/api` na mesma origem (Vite/nginx fazem proxy para o backend).
@@ -72,10 +72,12 @@ export const api = {
   login: (email: string, password: string) => req<LoginResult>('POST', '/auth/login', { email, password }),
   me: () => req<User>('GET', '/auth/me'),
   changePassword: (body: { currentPassword?: string; newPassword: string }) => req<User>('POST', '/auth/change-password', body),
-  updateProfile: (body: { name?: string; phone?: string; email?: string; avatar?: string | null }) => req<User>('PATCH', '/auth/profile', body),
+  updateProfile: (body: { name?: string; phone?: string; email?: string; avatar?: string | null; notifPrefs?: Record<string, boolean> }) =>
+    req<User>('PATCH', '/auth/profile', body),
 
   // notificações (sino)
   notifications: () => req<Notification[]>('GET', '/notifications'),
+  notifEvents: () => req<EventoNotificacao[]>('GET', '/notifications/events'),
   markNotifRead: (id: string) => req('PATCH', `/notifications/${id}`, { read: true }),
   markAllNotifsRead: () => req('POST', '/notifications/read-all'),
   deleteNotif: (id: string) => req('DELETE', `/notifications/${id}`),
@@ -95,6 +97,8 @@ export const api = {
   createLocal: (input: Partial<Local>) => req<Local>('POST', '/locais', input),
   updateLocal: (id: string, patch: Partial<Local>) => req<Local>('PATCH', `/locais/${id}`, patch),
   deleteLocal: (id: string) => req('DELETE', `/locais/${id}`),
+  /** Tenta achar a coordenada do local pelo endereço (pino do mapa). */
+  geocodeLocal: (id: string) => req<Local>('POST', `/locais/${id}/geocode`),
 
   // usuários
   users: () => req<User[]>('GET', '/users'),
@@ -115,7 +119,9 @@ export const api = {
   // chamados
   tickets: () => req<Ticket[]>('GET', '/tickets'),
   ticketsHistory: () => req<Ticket[]>('GET', '/tickets?history=1'),
-  createTicket: (body: Partial<Ticket> & { title: string; registroId?: string }) => req<Ticket>('POST', '/tickets', body),
+  /** `jaRealizado` abre o chamado já concluído: serviço que o técnico fez e só agora registra. */
+  createTicket: (body: Partial<Ticket> & { title: string; registroId?: string; jaRealizado?: boolean; realizadoEm?: string }) =>
+    req<Ticket>('POST', '/tickets', body),
   updateTicket: (id: string, patch: Partial<Ticket>) => req<Ticket>('PATCH', `/tickets/${id}`, patch),
   acceptTicket: (id: string) => req<Ticket>('POST', `/tickets/${id}/accept`),
   /** Devolve o chamado para a fila (quem pegou, ou admin/gestor). */
@@ -123,6 +129,13 @@ export const api = {
   saveAtendimento: (id: string, body: Partial<Pick<Ticket, 'analise' | 'possivelSolucao' | 'solucao' | 'acoesTomadas' | 'visitas' | 'itens' | 'donePhotos'>>) =>
     req<Ticket>('PATCH', `/tickets/${id}/atendimento`, body),
   archiveTicket: (id: string) => req<Ticket>('POST', `/tickets/${id}/archive`),
+  /** Tira do histórico e devolve para a coluna de concluídos. */
+  unarchiveTicket: (id: string) => req<Ticket>('POST', `/tickets/${id}/unarchive`),
+  /** Cancela: some do app, o conteúdo fica na auditoria. */
+  cancelTicket: (id: string, motivo?: string) => req<{ ok: boolean }>('POST', `/tickets/${id}/cancel`, { motivo }),
+  /** Define quem está junto no chamado (lista completa, não incremental). */
+  shareTicket: (id: string, userIds: string[]) => req<Ticket>('POST', `/tickets/${id}/share`, { userIds }),
+  tecnicos: (localId?: string | null) => req<TecnicoRef[]>('GET', `/tecnicos${localId ? `?localId=${localId}` : ''}`),
   deleteTicket: (id: string) => req('DELETE', `/tickets/${id}`),
   comments: (ticketId: string) => req<TicketComment[]>('GET', `/tickets/${ticketId}/comments`),
   addComment: (ticketId: string, body: string) => req<TicketComment>('POST', `/tickets/${ticketId}/comments`, { body }),
@@ -138,7 +151,13 @@ export const api = {
   deleteRegistro: (id: string) => req('DELETE', `/registros/${id}`),
 
   // dashboard e relatório
-  overview: () => req<Overview>('GET', '/stats/overview'),
+  /** O que há de mais novo em cada área (pontinhos da barra de navegação). */
+  novidades: () => req<Novidades>('GET', '/novidades'),
+  overview: (dias?: number) => req<Overview>('GET', `/stats/overview${dias ? `?dias=${dias}` : ''}`),
+  /** CEP → endereço, para preencher o cadastro do local. */
+  buscarCep: (cep: string) => req<{ cep: string; address: string; city: string }>('GET', `/cep/${cep.replace(/\D/g, '')}`),
+  /** Sugestões de endereço enquanto se digita (pino do mapa). */
+  sugestoesEndereco: (q: string) => req<SugestaoEndereco[]>('GET', `/geocode/sugestoes?q=${encodeURIComponent(q)}`),
   monthlyReport: (month: string, localId?: string) =>
     req<MonthlyReport>('GET', `/reports/monthly?month=${month}${localId ? `&localId=${localId}` : ''}`),
 

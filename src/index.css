@@ -49,25 +49,44 @@ label:has(> input[type='radio']),
   --tooltip-border: #27272a;
 }
 
-/* Tema CLARO: inverte a escala slate (fundos escuros viram claros e vice-versa). */
+/**
+ * Tema CLARO: a escala slate é invertida (o que era fundo escuro vira claro e o texto
+ * claro vira escuro). Duas correções em relação à inversão ingênua:
+ * - as superfícies (900/950) ficam BRANCAS e o fundo da página, cinza — senão o cartão
+ *   some dentro da página, porque os dois teriam o mesmo tom;
+ * - os cinzas de texto (400/500/600) são mais escuros do que o espelho exato, para o
+ *   texto auxiliar continuar legível sobre branco.
+ */
 :root[data-theme='light'] {
   color-scheme: light;
-  --app-bg: #f4f4f5;
-  --color-slate-50: #09090b;
-  --color-slate-100: #18181b;
-  --color-slate-200: #27272a;
-  --color-slate-300: #3f3f46;
-  --color-slate-400: #52525b;
-  --color-slate-500: #71717a;
-  --color-slate-600: #a1a1aa;
-  --color-slate-700: #d4d4d8;
-  --color-slate-800: #e4e4e7;
-  --color-slate-900: #f4f4f5;
+  --app-bg: #eceef2;
+  --color-slate-50: #0a0c0f;
+  --color-slate-100: #111418;
+  --color-slate-200: #1f2329;
+  --color-slate-300: #2f343b;
+  --color-slate-400: #454b54;
+  --color-slate-500: #5b616b;
+  --color-slate-600: #6b7280;
+  --color-slate-700: #c7ccd4;
+  --color-slate-800: #dde1e7;
+  --color-slate-900: #ffffff;
   --color-slate-950: #ffffff;
-  --chart-grid: #e4e4e7;
-  --chart-tick: #52525b;
+
+  /* O vermelho da marca precisa escurecer no claro: #f87171 sobre branco não se lê. */
+  --color-red-300: #b91c1c;
+  --color-red-400: #dc2626;
+  --color-sky-300: #b91c1c;
+  --color-sky-400: #dc2626;
+
+  --chart-grid: #dde1e7;
+  --chart-tick: #5b616b;
   --tooltip-bg: #ffffff;
-  --tooltip-border: #d4d4d8;
+  --tooltip-border: #c7ccd4;
+}
+
+/* No claro, a sombra faz o papel que no escuro é da borda. */
+:root[data-theme='light'] .shadow-sm {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.05);
 }
 
 html,
@@ -144,4 +163,53 @@ select optgroup {
     overflow: visible !important;
     padding: 0 !important;
   }
+}
+
+
+/* ------------------------------------------------------------------ *
+ * Mapa (Leaflet): os controles vêm com cara de 2010 — aqui eles passam
+ * a usar as cores do app, no claro e no escuro.
+ * ------------------------------------------------------------------ */
+.leaflet-container {
+  font: inherit;
+  background: var(--app-bg);
+}
+.leaflet-control-zoom a,
+.leaflet-control-attribution {
+  background: var(--color-slate-900) !important;
+  color: var(--color-slate-400) !important;
+  border-color: var(--color-slate-800) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: var(--color-slate-800) !important;
+  color: var(--color-slate-100) !important;
+}
+.leaflet-control-attribution a {
+  color: var(--color-slate-500) !important;
+}
+.leaflet-bar {
+  border: 1px solid var(--color-slate-800) !important;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35) !important;
+}
+/* A plaquinha do local se mede pelo conteúdo, não pelo tamanho fixo do Leaflet. */
+.placa-local {
+  width: auto !important;
+  height: auto !important;
+  background: none;
+  border: 0;
+}
+
+/* O popup também é do app, não do Leaflet. */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--color-slate-900);
+  color: var(--color-slate-200);
+  border: 1px solid var(--color-slate-800);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+.leaflet-popup-content {
+  margin: 10px 12px;
+}
+.leaflet-popup-close-button {
+  color: var(--color-slate-500) !important;
 }

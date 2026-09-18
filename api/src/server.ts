@@ -8,7 +8,7 @@ import { prisma, enforceAuditImmutability } from './db'
 import { verifyToken, loadAuthUser, sign, type AuthUser, type TokenUser } from './auth'
 import { ensureBaseData, needsSetup } from './bootstrap'
 import { deleteUploads, ensureUploadDir, readUpload, saveDataUrl, UPLOAD_PATH_RE } from './uploads'
-import { announce, initVapid, usersWithPerm, vapidPublicKey } from './notify'
+import { announce, EVENTOS, initVapid, parsePrefs, usersWithPerm, vapidPublicKey } from './notify'
 
 // Segurança: em produção, segredos default são fatais (evita subir com chave conhecida).
 if (process.env.NODE_ENV === 'production') {
@@ -185,15 +185,30 @@ async function nextCode(prefix: string, pad: number, rows: { code: string }[]): 
 const nextTicketCode = async () => nextCode('CH', 4, await prisma.ticket.findMany({ select: { code: true } }))
 const nextLocalCode = async () => nextCode('LC', 3, await prisma.local.findMany({ select: { code: true } }))
 
-interface TicketStatusDef { key: string; label: string; done?: boolean }
+/**
+ * Fase é o que separa as três telas de chamado. `aberto` e `concluido` têm uma coluna
+ * cada, fixas; só `andamento` aceita colunas novas (aguardando peça, cliente…).
+ */
+type FaseChamado = 'aberto' | 'andamento' | 'concluido'
+interface TicketStatusDef { key: string; label: string; done?: boolean; fase?: FaseChamado }
 const DEFAULT_STATUSES: TicketStatusDef[] = [
-  { key: 'aberto', label: 'Aberto' },
-  { key: 'andamento', label: 'Em andamento' },
-  { key: 'resolvido', label: 'Concluído', done: true },
+  { key: 'aberto', label: 'Aberto', fase: 'aberto' },
+  { key: 'andamento', label: 'Em andamento', fase: 'andamento' },
+  { key: 'resolvido', label: 'Concluído', done: true, fase: 'concluido' },
 ]
+
+/** Config antiga (sem `fase`) é lida pela posição: primeira = entrada, a `done` = fim. */
+function comFase(lista: TicketStatusDef[]): TicketStatusDef[] {
+  const iDone = lista.findIndex((s) => s.done)
+  return lista.map((s, i) => ({
+    ...s,
+    fase: s.fase ?? (i === 0 ? 'aberto' : s.done || (iDone < 0 && i === lista.length - 1) ? 'concluido' : 'andamento'),
+  }))
+}
+
 async function ticketStatuses(): Promise<TicketStatusDef[]> {
   const raw = await getSetting('ticket_statuses', '')
-  if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a) && a.length) return a } catch { /* usa default */ } }
+  if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a) && a.length) return comFase(a) } catch { /* usa default */ } }
   return DEFAULT_STATUSES
 }
 async function doneKeys(): Promise<Set<string>> {
@@ -206,7 +221,7 @@ function parsePhotos(s: any): string[] {
 }
 function cleanPhotos(arr: any): string[] {
   if (!Array.isArray(arr)) return []
-  return arr.filter((x) => typeof x === 'string' && UPLOAD_PATH_RE.test(x)).slice(0, 8)
+  return arr.filter((x) => typeof x === 'string' && UPLOAD_PATH_RE.test(x)).slice(0, 12)
 }
 const droppedPhotos = (before: string[], after: string[]) => before.filter((p) => !after.includes(p))
 
@@ -274,6 +289,45 @@ function cleanItens(arr: any): Item[] | string {
 
 const minutosTotais = (t: any) => (parseJsonArray(t.visitas) as Visita[]).reduce((s, v) => s + (v.minutos || 0), 0)
 
+const NOVENTA_DIAS_MS = 90 * 24 * 3600 * 1000
+
+/**
+ * Data de lançamento vinda do formulário. Aceita o dia inteiro ("2026-09-01", que vira
+ * meio-dia para o fuso não jogar para a véspera) e o instante exato em ISO, que é o que
+ * o campo de data e hora manda.
+ */
+function dataLancada(v: string): Date | null {
+  const bruto = String(v ?? '').trim()
+  if (!bruto) return null
+  const d = new Date(DATA_RE.test(bruto) ? `${bruto}T12:00:00` : bruto)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/**
+ * Data de abertura de um chamado lançado fora da hora. Dois caminhos:
+ * - `realizadoEm` do serviço já realizado: é o técnico registrando o que ele mesmo fez
+ *   (até 90 dias atrás), então não pede permissão extra;
+ * - `createdAt` em qualquer outro caso: só com `ajustar_datas_chamado`.
+ * `undefined` = resposta de erro já enviada.
+ */
+async function dataDoLancamento(u: AuthUser, b: any, jaRealizado: boolean, reply: any): Promise<Date | null | undefined> {
+  const bruto = jaRealizado && b.realizadoEm ? String(b.realizadoEm) : b.createdAt ? String(b.createdAt) : ''
+  if (!bruto) return null
+  const retro = jaRealizado && b.realizadoEm
+  if (!retro && !u.perms.has('ajustar_datas_chamado')) {
+    reply.code(403).send({ error: 'sem permissão para lançar chamado com outra data' })
+    return undefined
+  }
+  const d = dataLancada(bruto)
+  if (!d) { reply.code(400).send({ error: 'data inválida' }); return undefined }
+  if (d.getTime() > Date.now()) { reply.code(400).send({ error: 'a data não pode ser no futuro' }); return undefined }
+  if (retro && Date.now() - d.getTime() > NOVENTA_DIAS_MS) {
+    reply.code(400).send({ error: 'serviço já realizado aceita data de até 90 dias atrás' })
+    return undefined
+  }
+  return d
+}
+
 async function shapeTickets(tickets: any[]) {
   const locais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((c) => [c.id, c.name]))
   const counts = tickets.length
@@ -287,14 +341,21 @@ async function shapeTickets(tickets: any[]) {
     donePhotos: parsePhotos(t.donePhotos),
     visitas: parseJsonArray(t.visitas),
     itens: parseJsonArray(t.itens),
+    sharedWith: parseJsonArray(t.sharedWith),
     minutosTotais: minutosTotais(t),
     commentCount: byTicket[t.id] ?? 0,
   }))
 }
 
-// Quem é avisado sobre um chamado: quem abriu + o técnico que pegou.
+/** Técnicos de apoio do chamado (compartilhamento). JSON [{id, name}]. */
+function shared(t: any): { id: string; name: string }[] {
+  return parseJsonArray(t.sharedWith).filter((x: any) => x && typeof x.id === 'string')
+}
+const sharedIds = (t: any) => shared(t).map((s) => s.id)
+
+// Quem é avisado sobre um chamado: quem abriu, o técnico que pegou e quem está junto nele.
 function ticketAudience(t: any): string[] {
-  return [t.createdById, t.assigneeId].filter(Boolean)
+  return [t.createdById, t.assigneeId, ...sharedIds(t)].filter(Boolean)
 }
 
 /**
@@ -306,6 +367,7 @@ function ticketAudience(t: any): string[] {
 function canSeeTicket(u: AuthUser, t: any, ids: string[] | null): boolean {
   if (t.createdById === u.sub) return true
   if (t.assigneeId === u.sub) return true
+  if (sharedIds(t).includes(u.sub)) return true
   if (!u.perms.has('ver_todos_chamados')) return false
   if (!ids) return true
   if (t.localId && ids.includes(t.localId)) return true
@@ -319,8 +381,8 @@ const ticketUrl = (id: string) => `/chamados?t=${id}`
 async function shapeUser(id: string) {
   const u = await prisma.user.findUnique({ where: { id }, include: { grants: { select: { id: true } }, denies: { select: { id: true } } } })
   if (!u) return null
-  const { passwordHash, grants, denies, ...safe } = u
-  return { ...safe, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id) }
+  const { passwordHash, grants, denies, notifPrefs, ...safe } = u
+  return { ...safe, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id), notifPrefs: parsePrefs(notifPrefs) }
 }
 const shapeRole = (r: any) => ({ id: r.id, name: r.name, color: r.color, system: r.system, permissions: (r.permissions ?? []).map((p: any) => p.id) })
 const shapePermission = (p: any) => ({ id: p.id, label: p.label, module: p.module, system: p.system })
@@ -431,8 +493,16 @@ app.patch('/auth/profile', async (req: any, reply) => {
     if (!EMAIL_RE.test(e)) return reply.code(400).send({ error: 'e-mail inválido' })
     data.email = e
   }
+  // Sobre o que este usuário quer ser avisado. Só os eventos conhecidos; o que não vier
+  // fica ligado (o padrão é receber tudo).
+  if ('notifPrefs' in b) {
+    const p = b.notifPrefs && typeof b.notifPrefs === 'object' ? b.notifPrefs : {}
+    const limpo: Record<string, boolean> = {}
+    for (const e of EVENTOS) if (e.id in p) limpo[e.id] = !!p[e.id]
+    data.notifPrefs = JSON.stringify(limpo)
+  }
   const user = await prisma.user.update({ where: { id: u.sub }, data })
-  await audit(u, 'editar', 'usuario', user.name, undefined, 'Perfil atualizado')
+  await audit(u, 'editar', 'usuario', user.name, undefined, 'notifPrefs' in b && Object.keys(data).length === 1 ? 'Preferências de notificação atualizadas' : 'Perfil atualizado')
   return shapeUser(user.id)
 })
 
@@ -457,7 +527,106 @@ app.get('/uploads/:name', async (req: any, reply) => {
 
 // ----------------------------- locais -----------------------------
 
-const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'phone', 'note'] as const
+const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'cep', 'phone', 'note'] as const
+
+/** Coordenada vinda do formulário (pino arrastado no mapa ou sugestão de endereço escolhida). */
+function lerCoordenada(b: any): { lat: number; lng: number } | null {
+  const lat = Number(b?.lat)
+  const lng = Number(b?.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
+  return { lat, lng }
+}
+
+/**
+ * Endereço → coordenada, pelo Nominatim (OpenStreetMap). É o que põe o pino no mapa dos
+ * locais. Falha em silêncio: sem internet, sem resultado ou fora do ar, o local
+ * simplesmente fica sem pino e o botão "localizar" tenta de novo depois.
+ *
+ * O uso é esporádico (um local por cadastro), dentro da política de uso do serviço.
+ */
+async function geocodificar(l: { name?: string; address?: string; city?: string; cep?: string }): Promise<{ lat: number; lng: number } | null> {
+  const busca = [l.address, l.city, l.cep].filter(Boolean).join(', ').trim()
+  if (!busca) return null
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(busca)}`
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'QualityChamados/1.0 (central de chamados interna)', 'Accept-Language': 'pt-BR' },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) return null
+    const json: any = await res.json()
+    const hit = Array.isArray(json) ? json[0] : null
+    if (!hit) return null
+    const lat = Number(hit.lat)
+    const lng = Number(hit.lon)
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * CEP → endereço, pelo ViaCEP. É o atalho do cadastro de local: digitou o CEP, o resto
+ * do endereço aparece preenchido e sobra digitar o número.
+ */
+app.get('/cep/:cep', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  if (!u.perms.has('gerenciar_locais') && !u.perms.has('criar_chamados')) return reply.code(403).send({ error: 'sem permissão' })
+  const cep = String(req.params.cep ?? '').replace(/\D/g, '')
+  if (cep.length !== 8) return reply.code(400).send({ error: 'CEP precisa ter 8 dígitos' })
+  try {
+    const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return reply.code(502).send({ error: 'serviço de CEP indisponível' })
+    const j: any = await res.json()
+    if (j?.erro) return reply.code(404).send({ error: 'CEP não encontrado' })
+    return {
+      cep: String(j.cep ?? cep),
+      address: [j.logradouro, j.bairro].filter(Boolean).join(' - '),
+      city: [j.localidade, j.uf].filter(Boolean).join(' - '),
+    }
+  } catch {
+    return reply.code(502).send({ error: 'não foi possível consultar o CEP agora' })
+  }
+})
+
+/**
+ * Sugestões de endereço enquanto se digita — o mesmo serviço do pino, só que devolvendo
+ * várias opções. Passa pelo servidor para o Nominatim ver um `User-Agent` só e para o
+ * navegador não falar com terceiros.
+ */
+app.get('/geocode/sugestoes', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  if (!u.perms.has('gerenciar_locais') && !u.perms.has('criar_chamados')) return reply.code(403).send({ error: 'sem permissão' })
+  const q = String(req.query?.q ?? '').trim()
+  if (q.length < 4) return []
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&addressdetails=1&countrycodes=br&q=${encodeURIComponent(q)}`
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'QualityChamados/1.0 (central de chamados interna)', 'Accept-Language': 'pt-BR' },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!res.ok) return []
+    const json: any = await res.json()
+    if (!Array.isArray(json)) return []
+    return json.map((h: any) => {
+      const a = h.address ?? {}
+      const rua = [a.road, a.house_number].filter(Boolean).join(', ')
+      const cidade = a.city || a.town || a.village || a.municipality || ''
+      return {
+        descricao: String(h.display_name ?? '').slice(0, 200),
+        address: [rua, a.suburb].filter(Boolean).join(' - ') || String(h.name ?? '').slice(0, 120),
+        city: [cidade, a.state].filter(Boolean).join(' - '),
+        lat: Number(h.lat),
+        lng: Number(h.lon),
+      }
+    }).filter((x: any) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
+  } catch {
+    return []
+  }
+})
 
 app.get('/locais', async (req: any, reply) => {
   const u = await requireAuth(req, reply)
@@ -466,9 +635,26 @@ app.get('/locais', async (req: any, reply) => {
   if (!u.perms.has('ver_locais') && !u.perms.has('criar_chamados')) return reply.code(403).send({ error: 'sem permissão' })
   const ids = scopeIds(u)
   const locais = await prisma.local.findMany({ where: ids ? { id: { in: ids } } : {}, orderBy: { name: 'asc' } })
-  const counts = await prisma.ticket.groupBy({ by: ['localId'], where: { archivedAt: null }, _count: true })
-  const porLocal = Object.fromEntries(counts.map((c: any) => [c.localId, c._count]))
-  return locais.map((l) => ({ ...l, ticketCount: porLocal[l.id] ?? 0 }))
+  const done = await doneKeys()
+  const tickets = await prisma.ticket.findMany({
+    where: { canceledAt: null, localId: { in: locais.map((l) => l.id) } },
+    select: { localId: true, status: true, assigneeId: true, archivedAt: true },
+  })
+  // Três números por local: em aberto agora, desses quantos já têm técnico, e o total de sempre.
+  const zero = () => ({ ativos: 0, andamento: 0, total: 0 })
+  const por: Record<string, ReturnType<typeof zero>> = {}
+  for (const t of tickets) {
+    if (!t.localId) continue
+    const c = (por[t.localId] ??= zero())
+    c.total++
+    if (t.archivedAt || done.has(t.status)) continue
+    c.ativos++
+    if (t.assigneeId) c.andamento++
+  }
+  return locais.map((l) => {
+    const c = por[l.id] ?? zero()
+    return { ...l, ticketCount: c.ativos, ticketsAtivos: c.ativos, ticketsAndamento: c.andamento, ticketsTotal: c.total }
+  })
 })
 
 app.post('/locais', async (req: any, reply) => {
@@ -479,7 +665,10 @@ app.post('/locais', async (req: any, reply) => {
   const name = String(b.name ?? '').trim()
   if (!name) return reply.code(400).send({ error: 'informe o nome do local' })
   const data: any = { code: String(b.code ?? '').trim() || (await nextLocalCode()), name }
-  for (const k of ['city', 'address', 'phone', 'note'] as const) if (k in b) data[k] = String(b[k] ?? '')
+  for (const k of ['city', 'address', 'cep', 'phone', 'note'] as const) if (k in b) data[k] = String(b[k] ?? '')
+  // Coordenada que veio do formulário manda; só sem ela o endereço é geocodificado.
+  const coord = lerCoordenada(b) ?? (await geocodificar(data))
+  if (coord) { data.lat = coord.lat; data.lng = coord.lng }
   const l = await prisma.local.create({ data })
   await audit(u, 'criar', 'local', l.name, l.name, l.city || undefined)
   return l
@@ -495,6 +684,17 @@ app.patch('/locais/:id', async (req: any, reply) => {
   const data: any = {}
   for (const k of LOCAL_FIELDS) if (k in b) data[k] = String(b[k] ?? '')
   if ('name' in data && !data.name.trim()) return reply.code(400).send({ error: 'informe o nome do local' })
+  const manual = lerCoordenada(b)
+  if (manual) {
+    // Pino posicionado à mão: é a verdade, não se mexe nele.
+    data.lat = manual.lat
+    data.lng = manual.lng
+  } else if (('address' in data && data.address !== before.address) || ('city' in data && data.city !== before.city) || ('cep' in data && data.cep !== before.cep)) {
+    // Endereço mudou e ninguém marcou o ponto: o pino velho apontaria para o lugar errado.
+    const coord = await geocodificar({ address: data.address ?? before.address, city: data.city ?? before.city, cep: data.cep ?? before.cep })
+    data.lat = coord?.lat ?? null
+    data.lng = coord?.lng ?? null
+  }
   const l = await prisma.local.update({ where: { id: req.params.id }, data })
   const detail = diffDetail(before, b, [
     { key: 'name', label: 'Nome' }, { key: 'code', label: 'Código' }, { key: 'city', label: 'Cidade' },
@@ -502,6 +702,20 @@ app.patch('/locais/:id', async (req: any, reply) => {
   ])
   await audit(u, 'editar', 'local', l.name, l.name, detail || undefined)
   return l
+})
+
+/** Tenta (de novo) achar a coordenada deste local pelo endereço. */
+app.post('/locais/:id/geocode', async (req: any, reply) => {
+  const u = await guard(req, reply, 'gerenciar_locais')
+  if (!u) return
+  if (outOfScope(u, req.params.id, reply)) return
+  const l = await prisma.local.findUnique({ where: { id: req.params.id } })
+  if (!l) return reply.code(404).send()
+  if (!l.address && !l.city) return reply.code(400).send({ error: 'cadastre o endereço do local primeiro' })
+  const coord = await geocodificar(l)
+  if (!coord) return reply.code(422).send({ error: 'não foi possível achar este endereço no mapa — confira a rua, o número e a cidade' })
+  const atualizado = await prisma.local.update({ where: { id: l.id }, data: coord })
+  return atualizado
 })
 
 app.delete('/locais/:id', async (req: any, reply) => {
@@ -521,7 +735,8 @@ app.get('/users', async (req: any, reply) => {
   if (!u) return
   if (!u.perms.has('ver_usuarios')) return reply.code(403).send({ error: 'sem permissão' })
   const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: { grants: { select: { id: true } }, denies: { select: { id: true } } } })
-  return users.map(({ passwordHash, grants, denies, ...x }) => ({ ...x, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id) }))
+  // `notifPrefs` é preferência de cada um: não interessa à tela de usuários e não sai daqui.
+  return users.map(({ passwordHash, notifPrefs, grants, denies, ...x }) => ({ ...x, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id) }))
 })
 
 app.post('/users', async (req: any, reply) => {
@@ -676,8 +891,11 @@ app.get('/tickets', async (req: any, reply) => {
   if (!u) return
   const ids = scopeIds(u)
   const history = req.query?.history === '1' || req.query?.history === 'true'
+  // O histórico é uma tela à parte: quem não tem a permissão não lê chamado arquivado.
+  if (history && !u.perms.has('ver_arquivados')) return reply.code(403).send({ error: 'sem permissão para ver o histórico' })
   const archived = archivedPred(await doneKeys(), Date.now() - WEEK_MS)
-  const all = await prisma.ticket.findMany({ orderBy: { createdAt: 'desc' } })
+  // Chamado cancelado não aparece em lugar nenhum do app — só na auditoria.
+  const all = await prisma.ticket.findMany({ where: { canceledAt: null }, orderBy: { createdAt: 'desc' } })
   const tickets = all.filter((t) => canSeeTicket(u, t, ids) && (history ? archived(t) : !archived(t)))
   return shapeTickets(tickets)
 })
@@ -692,18 +910,59 @@ app.post('/tickets', async (req: any, reply) => {
   if (b.photos?.length && !u.perms.has('anexar_fotos_chamado')) return reply.code(403).send({ error: 'sem permissão para anexar fotos' })
 
   const statuses = await ticketStatuses()
+  const done0 = await doneKeys()
+
+  /**
+   * SERVIÇO JÁ REALIZADO: o técnico esteve no local por outro motivo, resolveu algo e só
+   * agora registra. Nasce concluído, com ele como responsável e a solução preenchida —
+   * não passa pela fila. `realizadoEm` (até 90 dias atrás) é a data do serviço.
+   */
+  const jaRealizado = !!b.jaRealizado
+  if (jaRealizado && !(u.perms.has('registrar_atendimento') && u.perms.has('concluir_chamados'))) {
+    return reply.code(403).send({ error: 'sem permissão para registrar serviço já realizado' })
+  }
+  const doneKey = statuses.find((s) => s.done)?.key
+  if (jaRealizado && !doneKey) return reply.code(400).send({ error: 'o quadro não tem coluna de conclusão' })
+  const solucao = String(b.solucao ?? '').trim()
+  if (jaRealizado && !solucao) return reply.code(400).send({ error: 'descreva o que foi feito (solução) para registrar um serviço já realizado' })
+
+  const quando = await dataDoLancamento(u, b, jaRealizado, reply)
+  if (quando === undefined) return
+
   // Chamado nasce na coluna de entrada. Só quem move chamados escolhe outra — e nunca a
   // de conclusão, que exige a solução preenchida no atendimento.
-  const done0 = await doneKeys()
-  const status = u.perms.has('gerenciar_chamados') && statuses.some((s) => s.key === b.status && !done0.has(s.key)) ? b.status : statuses[0].key
+  const status = jaRealizado
+    ? (doneKey as string)
+    : u.perms.has('gerenciar_chamados') && statuses.some((s) => s.key === b.status && !done0.has(s.key)) ? b.status : statuses[0].key
+
+  const extra: any = {}
+  if (jaRealizado) {
+    extra.assigneeId = u.sub
+    extra.assigneeName = u.name
+    extra.solucao = solucao.slice(0, 8000)
+    extra.analise = b.analise ? String(b.analise).trim().slice(0, 8000) || null : null
+    extra.acoesTomadas = b.acoesTomadas ? String(b.acoesTomadas).trim().slice(0, 8000) || null : null
+    extra.resolvedAt = quando ?? new Date()
+    const v = cleanVisitas(b.visitas ?? [], [], u)
+    if (typeof v === 'string') return reply.code(400).send({ error: v })
+    extra.visitas = JSON.stringify(v)
+    const i = cleanItens(b.itens ?? [])
+    if (typeof i === 'string') return reply.code(400).send({ error: i })
+    extra.itens = JSON.stringify(i)
+    if (b.donePhotos?.length && !u.perms.has('anexar_fotos_chamado')) return reply.code(403).send({ error: 'sem permissão para anexar fotos' })
+    extra.donePhotos = JSON.stringify(cleanPhotos(b.donePhotos))
+  }
+  if (quando) extra.createdAt = quando
+
   const t = await prisma.ticket.create({
     data: {
       code: await nextTicketCode(), title, description: b.description ? String(b.description) : null,
       solicitante: b.solicitante ? String(b.solicitante).trim().slice(0, 200) || null : null,
-      status, origin: b.registroId ? 'registro' : 'manual',
+      status, origin: jaRealizado ? 'realizado' : b.registroId ? 'registro' : 'manual',
       localId: b.localId || null,
       createdById: u.sub, createdByName: u.name,
       photos: JSON.stringify(cleanPhotos(b.photos)),
+      ...extra,
     },
   })
   // Chamado aberto a partir de um registro: o registro passa a apontar para ele.
@@ -711,10 +970,12 @@ app.post('/tickets', async (req: any, reply) => {
     await prisma.registro.updateMany({ where: { id: String(b.registroId), ticketId: null }, data: { ticketId: t.id } })
   }
   const localName = t.localId ? (await prisma.local.findUnique({ where: { id: t.localId }, select: { name: true } }))?.name : undefined
-  await audit(u, 'criar', 'chamado', t.title, localName, t.code)
-  // Chamado novo sempre entra na fila: avisa os técnicos que podem pegá-lo.
-  const aud = await usersWithPerm('aceitar_chamados', t.localId)
-  await announce(aud.filter((id) => id !== u.sub), { kind: 'ticket', title: `Novo chamado ${t.code}`, body: t.title, url: ticketUrl(t.id) }, { push: true })
+  await audit(u, 'criar', 'chamado', t.title, localName, [t.code, jaRealizado ? 'serviço já realizado' : '', quando ? `data ${quando.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''].filter(Boolean).join(' · '))
+  // Só o que entra na fila avisa os técnicos — serviço já realizado nasce fechado.
+  if (!jaRealizado) {
+    const aud = await usersWithPerm('aceitar_chamados', t.localId)
+    await announce(aud.filter((id) => id !== u.sub), { kind: 'ticket', title: `Novo chamado ${t.code}`, body: t.title, url: ticketUrl(t.id), event: 'chamado_novo' }, { push: true })
+  }
   return (await shapeTickets([t]))[0]
 })
 
@@ -757,6 +1018,19 @@ app.patch('/tickets/:id', async (req: any, reply) => {
   if ('solicitante' in b) data.solicitante = b.solicitante ? String(b.solicitante).trim().slice(0, 200) || null : null
   if ('status' in b) data.status = b.status
   if ('localId' in b) data.localId = b.localId || null
+  // Datas: lançamento que não foi feito na hora. Só com `ajustar_datas_chamado`.
+  for (const campo of ['createdAt', 'resolvedAt'] as const) {
+    if (!(campo in b)) continue
+    if (!u.perms.has('ajustar_datas_chamado')) return reply.code(403).send({ error: 'sem permissão para editar as datas do chamado' })
+    if (b[campo] === null) { data[campo] = campo === 'resolvedAt' ? null : before.createdAt; continue }
+    const d = dataLancada(String(b[campo]))
+    if (!d) return reply.code(400).send({ error: `${campo === 'createdAt' ? 'data de abertura' : 'data de conclusão'} inválida` })
+    if (d.getTime() > Date.now()) return reply.code(400).send({ error: 'a data não pode ser no futuro' })
+    data[campo] = d
+  }
+  if (data.resolvedAt && data.createdAt && data.resolvedAt < data.createdAt) {
+    return reply.code(400).send({ error: 'a conclusão não pode ser antes da abertura' })
+  }
   const orphans: string[] = []
   if ('photos' in b) {
     const next = cleanPhotos(b.photos)
@@ -779,15 +1053,18 @@ app.patch('/tickets/:id', async (req: any, reply) => {
   if (orphans.length) deleteUploads(orphans).catch(() => {})
 
   const stLabel = Object.fromEntries((await ticketStatuses()).map((s) => [s.key, s.label]))
+  const dataBr = (v: any) => (v ? new Date(v).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
   const diff = diffDetail(before, data, [
     { key: 'status', label: 'Status', fmt: (v: any) => stLabel[v] ?? v },
     { key: 'title', label: 'Título' },
+    { key: 'createdAt', label: 'Abertura', fmt: dataBr },
+    { key: 'resolvedAt', label: 'Conclusão', fmt: dataBr },
   ])
   await audit(u, 'editar', 'chamado', t.title, undefined, [t.code, diff].filter(Boolean).join(' · '))
 
   if (statusChanged) {
     const titulo = `Chamado ${t.code} · ${stLabel[t.status] ?? t.status}`
-    await announce(ticketAudience(t).filter((id) => id !== u.sub), { kind: 'ticket', title: titulo, body: t.title, url: ticketUrl(t.id) }, { push: true })
+    await announce(ticketAudience(t).filter((id) => id !== u.sub), { kind: 'ticket', title: titulo, body: t.title, url: ticketUrl(t.id), event: 'chamado_status' }, { push: true })
   }
   return (await shapeTickets([t]))[0]
 })
@@ -797,7 +1074,7 @@ app.post('/tickets/:id/archive', async (req: any, reply) => {
   const u = await guard(req, reply, 'concluir_chamados')
   if (!u) return
   const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
-  if (!t) return reply.code(404).send()
+  if (!t || t.canceledAt) return reply.code(404).send()
   if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
   if (!(await doneKeys()).has(t.status)) {
     return reply.code(400).send({ error: 'só chamado concluído pode ser finalizado — mova para a coluna de conclusão primeiro' })
@@ -805,6 +1082,109 @@ app.post('/tickets/:id/archive', async (req: any, reply) => {
   const atualizado = await prisma.ticket.update({ where: { id: t.id }, data: { archivedAt: new Date(), resolvedAt: t.resolvedAt ?? new Date() } })
   await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · finalizado e enviado ao histórico`)
   return (await shapeTickets([atualizado]))[0]
+})
+
+/** Devolver ao quadro um chamado que já tinha ido para o histórico. */
+app.post('/tickets/:id/unarchive', async (req: any, reply) => {
+  const u = await guard(req, reply, 'concluir_chamados')
+  if (!u) return
+  const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
+  if (!t) return reply.code(404).send()
+  if (t.canceledAt) return reply.code(400).send({ error: 'chamado cancelado não volta' })
+  if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  // Arquivado pela semana: sem uma conclusão recente ele voltaria e sumiria de novo.
+  const data: any = { archivedAt: null }
+  if (!t.resolvedAt || new Date(t.resolvedAt).getTime() < Date.now() - WEEK_MS) data.resolvedAt = new Date()
+  const atualizado = await prisma.ticket.update({ where: { id: t.id }, data })
+  await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · devolvido do histórico para os concluídos`)
+  return (await shapeTickets([atualizado]))[0]
+})
+
+/**
+ * CANCELAR: o chamado sai do quadro e do histórico e não volta. O que foi escrito fica
+ * na auditoria — título, relato, quem abriu, quem cancelou e o motivo.
+ *
+ * Quem cancela: `cancelar_chamados`, ou quem abriu o chamado enquanto ele ainda está em
+ * aberto (sem técnico e fora da conclusão) — mesmo sem ser gestor.
+ */
+app.post('/tickets/:id/cancel', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
+  if (!t) return reply.code(404).send()
+  if (t.canceledAt) return reply.code(400).send({ error: 'este chamado já foi cancelado' })
+  if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  const done = await doneKeys()
+  const donoEmAberto = t.createdById === u.sub && !t.assigneeId && !done.has(t.status)
+  if (!u.perms.has('cancelar_chamados') && !donoEmAberto) {
+    return reply.code(403).send({
+      error: t.createdById === u.sub ? 'o chamado já saiu da fila — peça para um administrador cancelar' : 'sem permissão para cancelar este chamado',
+    })
+  }
+  const motivo = String(req.body?.motivo ?? '').trim().slice(0, 500)
+  const canceled = await prisma.ticket.update({
+    where: { id: t.id },
+    data: { canceledAt: new Date(), canceledById: u.sub, canceledByName: u.name, cancelReason: motivo || null },
+  })
+  const localName = t.localId ? (await prisma.local.findUnique({ where: { id: t.localId }, select: { name: true } }))?.name : undefined
+  // A auditoria é o único lugar onde este chamado ainda pode ser lido: guarda o conteúdo.
+  const detalhe = [
+    t.code,
+    `aberto por ${t.createdByName}`,
+    t.solicitante ? `solicitante: ${t.solicitante}` : '',
+    t.description ? `relato: ${String(t.description).slice(0, 1500)}` : 'sem relato',
+    motivo ? `motivo do cancelamento: ${motivo}` : 'sem motivo informado',
+  ].filter(Boolean).join(' · ')
+  await audit(u, 'excluir', 'chamado', t.title, localName, detalhe)
+  const aud = ticketAudience(t).filter((id) => id !== u.sub)
+  await announce(aud, { kind: 'ticket', title: `Chamado ${t.code} cancelado`, body: `${u.name} cancelou: ${t.title}`, event: 'chamado_cancelado' }, { push: true })
+  return { ok: true, id: canceled.id }
+})
+
+/**
+ * COMPARTILHAR: põe outros técnicos junto no chamado. Eles veem tudo e são avisados,
+ * mas quem preenche o atendimento continua sendo o responsável que pegou o chamado.
+ */
+app.post('/tickets/:id/share', async (req: any, reply) => {
+  const u = await guard(req, reply, 'compartilhar_chamados')
+  if (!u) return
+  const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
+  if (!t) return reply.code(404).send()
+  if (t.canceledAt) return reply.code(404).send()
+  if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  if (!t.assigneeId) return reply.code(400).send({ error: 'o chamado ainda está na fila — alguém precisa pegá-lo antes' })
+  if (t.assigneeId !== u.sub && !u.perms.has('corrigir_atendimento')) {
+    return reply.code(403).send({ error: 'só o responsável pelo chamado compartilha' })
+  }
+  const pedidos = Array.isArray(req.body?.userIds) ? req.body.userIds.map((x: any) => String(x)).slice(0, 10) : null
+  if (!pedidos) return reply.code(400).send({ error: 'informe os técnicos' })
+  // Só técnico ativo, no escopo do local, e nunca o próprio responsável.
+  const podem = new Set(await usersWithPerm('registrar_atendimento', t.localId))
+  const validos = await prisma.user.findMany({
+    where: { id: { in: pedidos.filter((id: string) => id !== t.assigneeId && podem.has(id)) }, status: 'ativo' },
+    select: { id: true, name: true },
+  })
+  const antes = shared(t)
+  const depois = validos.map((v) => ({ id: v.id, name: v.name }))
+  const novos = depois.filter((d) => !antes.some((a) => a.id === d.id))
+  const atualizado = await prisma.ticket.update({ where: { id: t.id }, data: { sharedWith: JSON.stringify(depois) } })
+  await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · junto no chamado: ${depois.map((d) => d.name).join(', ') || '—'}`)
+  if (novos.length) {
+    await announce(novos.map((n) => n.id), {
+      kind: 'ticket', title: `Você entrou no chamado ${t.code}`,
+      body: `${u.name} compartilhou: ${t.title}`, url: ticketUrl(t.id), event: 'chamado_compartilhado',
+    }, { push: true })
+  }
+  return (await shapeTickets([atualizado]))[0]
+})
+
+/** Técnicos que podem ser postos junto num chamado (para a tela de compartilhar). */
+app.get('/tecnicos', async (req: any, reply) => {
+  const u = await guard(req, reply, 'ver_chamados')
+  if (!u) return
+  const ids = await usersWithPerm('registrar_atendimento', req.query?.localId || null)
+  const users = await prisma.user.findMany({ where: { id: { in: ids }, status: 'ativo' }, select: { id: true, name: true, avatar: true }, orderBy: { name: 'asc' } })
+  return users
 })
 
 app.post('/tickets/:id/accept', async (req: any, reply) => {
@@ -825,7 +1205,7 @@ app.post('/tickets/:id/accept', async (req: any, reply) => {
   const updated = await prisma.ticket.update({ where: { id: t.id }, data })
   await audit(u, 'editar', 'chamado', updated.title, undefined, `${updated.code} · pego por ${u.name}`)
   if (t.createdById && t.createdById !== u.sub) {
-    await announce([t.createdById], { kind: 'ticket', title: `Chamado ${updated.code} em atendimento`, body: `${u.name} pegou: ${updated.title}`, url: ticketUrl(t.id) }, { push: true })
+    await announce([t.createdById], { kind: 'ticket', title: `Chamado ${updated.code} em atendimento`, body: `${u.name} pegou: ${updated.title}`, url: ticketUrl(t.id), event: 'chamado_pego' }, { push: true })
   }
   return (await shapeTickets([updated]))[0]
 })
@@ -846,10 +1226,10 @@ app.post('/tickets/:id/release', async (req: any, reply) => {
   if (t.assigneeId !== u.sub && !u.perms.has('corrigir_atendimento')) return reply.code(403).send({ error: 'só quem pegou pode devolver o chamado' })
   const statuses = await ticketStatuses()
   if (statuses.some((s) => s.done && s.key === t.status)) return reply.code(400).send({ error: 'chamado concluído não volta para a fila' })
-  const updated = await prisma.ticket.update({ where: { id: t.id }, data: { assigneeId: null, assigneeName: null, status: statuses[0].key } })
+  const updated = await prisma.ticket.update({ where: { id: t.id }, data: { assigneeId: null, assigneeName: null, sharedWith: '[]', status: statuses[0].key } })
   await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · devolvido à fila (estava com ${t.assigneeName ?? '—'})`)
   const aud = [...(await usersWithPerm('aceitar_chamados', t.localId)), t.createdById, t.assigneeId].filter((id): id is string => !!id && id !== u.sub)
-  await announce(aud, { kind: 'ticket', title: `Chamado ${t.code} voltou para a fila`, body: t.title, url: ticketUrl(t.id) }, { push: true })
+  await announce(aud, { kind: 'ticket', title: `Chamado ${t.code} voltou para a fila`, body: t.title, url: ticketUrl(t.id), event: 'chamado_fila' }, { push: true })
   return (await shapeTickets([updated]))[0]
 })
 
@@ -899,11 +1279,17 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
 })
 
 app.delete('/tickets/:id', async (req: any, reply) => {
-  const u = await guard(req, reply, 'excluir_chamados')
+  const u = await requireAuth(req, reply)
   if (!u) return
   const existing = await prisma.ticket.findUnique({ where: { id: req.params.id } })
   if (!existing) return reply.code(404).send()
   if (!canSeeTicket(u, existing, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  // Quem abriu apaga o próprio chamado enquanto ele está em aberto (sem técnico e sem
+  // conclusão) — não precisa ser gestor para desfazer o que acabou de abrir.
+  const emAberto = !existing.assigneeId && !(await doneKeys()).has(existing.status)
+  if (!u.perms.has('excluir_chamados') && !(existing.createdById === u.sub && emAberto)) {
+    return reply.code(403).send({ error: 'sem permissão para excluir este chamado' })
+  }
   const t = await prisma.ticket.delete({ where: { id: req.params.id } })
   deleteUploads([...parsePhotos(t.photos), ...parsePhotos(t.donePhotos)]).catch(() => {})
   await audit(u, 'excluir', 'chamado', t.title, undefined, t.code)
@@ -920,11 +1306,15 @@ app.get('/tickets/:id/comments', async (req: any, reply) => {
 })
 
 app.post('/tickets/:id/comments', async (req: any, reply) => {
-  const u = await guard(req, reply, 'comentar_chamados')
+  const u = await requireAuth(req, reply)
   if (!u) return
   const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
-  if (!t) return reply.code(404).send()
+  if (!t || t.canceledAt) return reply.code(404).send()
   if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  // O andamento é a conversa do chamado: quem está nele — abriu, pegou ou foi posto junto —
+  // fala ali mesmo sem depender da permissão geral de comentar.
+  const noChamado = t.createdById === u.sub || t.assigneeId === u.sub || sharedIds(t).includes(u.sub)
+  if (!noChamado && !u.perms.has('comentar_chamados')) return reply.code(403).send({ error: 'sem permissão para comentar' })
   const body = String(req.body?.body ?? '').trim()
   if (!body) return reply.code(400).send({ error: 'comentário vazio' })
   const c = await prisma.ticketComment.create({ data: { ticketId: t.id, authorId: u.sub, authorName: u.name, body: body.slice(0, 4000) } })
@@ -932,7 +1322,14 @@ app.post('/tickets/:id/comments', async (req: any, reply) => {
   await prisma.ticket.update({ where: { id: t.id }, data: { updatedAt: new Date() } })
   await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · comentário`)
   const aud = (await ticketAudience(t)).filter((id) => id !== u.sub)
-  await announce(aud, { kind: 'ticket', title: `Comentário em ${t.code}`, body: body.slice(0, 120), url: ticketUrl(t.id) }, { push: true })
+  const seu = t.createdById === u.sub ? '' : ' no seu chamado'
+  await announce(aud, {
+    kind: 'ticket',
+    title: `${u.name} comentou${seu} ${t.code}`,
+    body: body.slice(0, 140),
+    url: ticketUrl(t.id),
+    event: 'chamado_comentario',
+  }, { push: true })
   return c
 })
 
@@ -950,7 +1347,22 @@ app.delete('/comments/:id', async (req: any, reply) => {
 
 // ----------------------------- registros (linha do tempo) -----------------------------
 
-const TIPOS_REGISTRO = new Set(['ocorrencia', 'solicitacao', 'informacao'])
+/** Categorias do registro — configuráveis, como as colunas do quadro. */
+interface TipoRegistroDef { key: string; label: string; color: string }
+const TIPOS_REGISTRO_PADRAO: TipoRegistroDef[] = [
+  { key: 'ocorrencia', label: 'Ocorrência', color: '#fbbf24' },
+  { key: 'solicitacao', label: 'Solicitação', color: '#38bdf8' },
+  { key: 'informacao', label: 'Informação', color: '#a1a1aa' },
+]
+async function tiposRegistro(): Promise<TipoRegistroDef[]> {
+  const raw = await getSetting('registro_tipos', '')
+  if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a) && a.length) return a } catch { /* usa o padrão */ } }
+  return TIPOS_REGISTRO_PADRAO
+}
+const chavesTipoRegistro = async () => new Set((await tiposRegistro()).map((t) => t.key))
+
+/** Primeira linha da descrição — título dos registros feitos antes de existir campo de título. */
+const primeiraLinha = (s: string) => String(s ?? '').split('\n')[0].trim().slice(0, 120)
 
 function canSeeRegistro(u: AuthUser, r: any, ids: string[] | null) {
   if (!ids) return true
@@ -963,18 +1375,26 @@ async function shapeRegistros(rs: any[]) {
   const tickets = rs.some((r) => r.ticketId)
     ? Object.fromEntries((await prisma.ticket.findMany({ where: { id: { in: rs.map((r) => r.ticketId).filter(Boolean) } }, select: { id: true, code: true } })).map((t) => [t.id, t.code]))
     : {}
-  return rs.map((r) => ({ ...r, localName: r.localId ? locais[r.localId] : undefined, ticketCode: r.ticketId ? tickets[r.ticketId] : undefined }))
+  return rs.map((r) => ({
+    ...r,
+    // Registro antigo não tinha título: o começo da descrição faz esse papel.
+    titulo: r.titulo || primeiraLinha(r.descricao) || 'Registro',
+    localName: r.localId ? locais[r.localId] : undefined,
+    ticketCode: r.ticketId ? tickets[r.ticketId] : undefined,
+  }))
 }
 
-function lerRegistro(b: any): { data: any } | { erro: string } {
+async function lerRegistro(b: any): Promise<{ data: any } | { erro: string }> {
   const data: any = {}
-  if ('descricao' in b) {
-    const d = String(b.descricao ?? '').trim()
-    if (!d) return { erro: 'descreva o que aconteceu ou o que foi solicitado' }
-    data.descricao = d.slice(0, 4000)
+  if ('titulo' in b) {
+    const t = String(b.titulo ?? '').trim()
+    if (!t) return { erro: 'informe o título do registro' }
+    data.titulo = t.slice(0, 200)
   }
+  // Descrição é opcional: "pediu 2ª via do controle" não precisa de mais nada.
+  if ('descricao' in b) data.descricao = String(b.descricao ?? '').trim().slice(0, 4000)
   if ('tipo' in b) {
-    if (!TIPOS_REGISTRO.has(b.tipo)) return { erro: 'tipo inválido' }
+    if (!(await chavesTipoRegistro()).has(b.tipo)) return { erro: 'categoria inválida' }
     data.tipo = b.tipo
   }
   if ('solicitante' in b) data.solicitante = b.solicitante ? String(b.solicitante).trim().slice(0, 200) || null : null
@@ -999,7 +1419,7 @@ app.get('/registros', async (req: any, reply) => {
   if (Number.isNaN(ate.getTime()) || Number.isNaN(de.getTime())) return reply.code(400).send({ error: 'período inválido' })
   const where: any = { ocorridoEm: { gte: de, lte: ate } }
   if (q.localId) where.localId = String(q.localId)
-  if (q.tipo && TIPOS_REGISTRO.has(q.tipo)) where.tipo = q.tipo
+  if (q.tipo && (await chavesTipoRegistro()).has(q.tipo)) where.tipo = q.tipo
   const rs = await prisma.registro.findMany({ where, orderBy: { ocorridoEm: 'desc' }, take: 1000 })
   return shapeRegistros(rs.filter((r) => canSeeRegistro(u, r, ids)))
 })
@@ -1008,12 +1428,13 @@ app.post('/registros', async (req: any, reply) => {
   const u = await guard(req, reply, 'criar_registros')
   if (!u) return
   const b = req.body ?? {}
-  if (!('descricao' in b)) return reply.code(400).send({ error: 'descreva o que aconteceu ou o que foi solicitado' })
-  const lido = lerRegistro(b)
+  if (!String(b.titulo ?? '').trim()) return reply.code(400).send({ error: 'informe o título do registro' })
+  const lido = await lerRegistro(b)
   if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
   if (lido.data.localId && outOfScope(u, lido.data.localId, reply)) return
-  const r = await prisma.registro.create({ data: { tipo: 'ocorrencia', ...lido.data, autorId: u.sub, autorName: u.name } })
-  await audit(u, 'criar', 'registro', r.descricao.slice(0, 80), undefined, r.tipo)
+  const padrao = (await tiposRegistro())[0]?.key ?? 'ocorrencia'
+  const r = await prisma.registro.create({ data: { tipo: padrao, ...lido.data, autorId: u.sub, autorName: u.name } })
+  await audit(u, 'criar', 'registro', r.titulo.slice(0, 80), undefined, r.tipo)
   return (await shapeRegistros([r]))[0]
 })
 
@@ -1023,11 +1444,11 @@ app.patch('/registros/:id', async (req: any, reply) => {
   const before = await prisma.registro.findUnique({ where: { id: req.params.id } })
   if (!before) return reply.code(404).send()
   if (!canSeeRegistro(u, before, scopeIds(u)) || !podeMexerRegistro(u, before)) return reply.code(403).send({ error: 'só quem registrou pode editar' })
-  const lido = lerRegistro(req.body ?? {})
+  const lido = await lerRegistro(req.body ?? {})
   if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
   if (lido.data.localId && lido.data.localId !== before.localId && outOfScope(u, lido.data.localId, reply)) return
   const r = await prisma.registro.update({ where: { id: before.id }, data: lido.data })
-  await audit(u, 'editar', 'registro', r.descricao.slice(0, 80))
+  await audit(u, 'editar', 'registro', (r.titulo || r.descricao).slice(0, 80))
   return (await shapeRegistros([r]))[0]
 })
 
@@ -1048,6 +1469,36 @@ const DIA_MS = 24 * 3600 * 1000
 const chaveDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const rotuloDia = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 
+/**
+ * O que há de mais novo em cada área. O app compara com a última vez que a pessoa esteve
+ * lá e acende um ponto na barra — assim dá para saber que entrou chamado sem depender de
+ * notificação, e sem recarregar a página.
+ */
+app.get('/novidades', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  const ids = scopeIds(u)
+  const statuses = await ticketStatuses()
+  const faseDe = (t: any) => statuses.find((s) => s.key === t.status)?.fase ?? 'aberto'
+  const tickets = u.perms.has('ver_chamados')
+    ? (await prisma.ticket.findMany({ where: { canceledAt: null }, select: { status: true, createdAt: true, updatedAt: true, resolvedAt: true, localId: true, createdById: true, assigneeId: true, sharedWith: true } }))
+        .filter((t) => canSeeTicket(u, t, ids))
+    : []
+  const maisNovo = (lista: any[], campo: (t: any) => Date | null) =>
+    lista.reduce((m, t) => { const d = campo(t); const x = d ? new Date(d).getTime() : 0; return x > m ? x : m }, 0)
+
+  const registro = u.perms.has('ver_registros')
+    ? (await prisma.registro.findMany({ orderBy: { createdAt: 'desc' }, take: 20 })).filter((r) => canSeeRegistro(u, r, ids))[0]
+    : null
+
+  return {
+    abertos: maisNovo(tickets.filter((t) => faseDe(t) === 'aberto'), (t) => t.createdAt),
+    andamento: maisNovo(tickets.filter((t) => faseDe(t) === 'andamento'), (t) => t.updatedAt),
+    concluidos: maisNovo(tickets.filter((t) => faseDe(t) === 'concluido'), (t) => t.resolvedAt ?? t.updatedAt),
+    registros: registro ? new Date(registro.createdAt).getTime() : 0,
+  }
+})
+
 app.get('/stats/overview', async (req: any, reply) => {
   const u = await guard(req, reply, 'ver_dashboard')
   if (!u) return
@@ -1056,15 +1507,17 @@ app.get('/stats/overview', async (req: any, reply) => {
   const done = new Set(statuses.filter((s) => s.done).map((s) => s.key))
   const archived = archivedPred(done, Date.now() - WEEK_MS)
   // Sem `ver_chamados` o dashboard fica só com zeros — não vaza chamado de ninguém.
-  const todos = u.perms.has('ver_chamados') ? (await prisma.ticket.findMany()).filter((t) => canSeeTicket(u, t, ids)) : []
+  const todos = u.perms.has('ver_chamados') ? (await prisma.ticket.findMany({ where: { canceledAt: null } })).filter((t) => canSeeTicket(u, t, ids)) : []
   const agora = Date.now()
   const ativos = todos.filter((t) => !archived(t))
   const abertos = ativos.filter((t) => !done.has(t.status))
   const meus = (t: any) => t.assigneeId === u.sub
 
-  // Série dos últimos 14 dias: quantos abriram e quantos concluíram em cada dia.
+  // Janela do dashboard: a semana é o padrão — é o que a operação enxerga de fato.
+  const JANELAS = [7, 15, 30]
+  const janela = JANELAS.includes(Number(req.query?.dias)) ? Number(req.query.dias) : 7
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
-  const dias = Array.from({ length: 14 }, (_, i) => new Date(hoje.getTime() - (13 - i) * DIA_MS))
+  const dias = Array.from({ length: janela }, (_, i) => new Date(hoje.getTime() - (janela - 1 - i) * DIA_MS))
   const serie = dias.map((d) => ({ chave: chaveDia(d), dia: rotuloDia(d), abertos: 0, concluidos: 0 }))
   const idx = Object.fromEntries(serie.map((s, i) => [s.chave, i]))
   for (const t of todos) {
@@ -1079,15 +1532,57 @@ app.get('/stats/overview', async (req: any, reply) => {
   // Fila: em aberto e sem técnico, do que espera há mais tempo para o mais novo.
   const naFila = abertos.filter((t) => !t.assigneeId).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
+  /**
+   * O mesmo número na janela atual e na anterior, do mesmo tamanho. É o que transforma
+   * "12 concluídos" em "12 concluídos, 20% a mais que na semana passada".
+   */
+  const inicioAtual = agora - janela * DIA_MS
+  const inicioAnterior = agora - 2 * janela * DIA_MS
+  const entre = (d: any, de: number, ate: number) => {
+    if (!d) return false
+    const x = new Date(d).getTime()
+    return x >= de && x < ate
+  }
+  const minutosDe = (lista: any[]) => lista.reduce((soma, t) => soma + minutosTotais(t), 0)
+  const abertosAtual = todos.filter((t) => entre(t.createdAt, inicioAtual, agora))
+  const abertosAnterior = todos.filter((t) => entre(t.createdAt, inicioAnterior, inicioAtual))
+  const concluidosAtual = todos.filter((t) => entre(t.resolvedAt, inicioAtual, agora))
+  const concluidosAnterior = todos.filter((t) => entre(t.resolvedAt, inicioAnterior, inicioAtual))
+  const horasMedias = (lista: any[]) => {
+    const fechados = lista.filter((t) => t.resolvedAt)
+    if (!fechados.length) return null
+    const soma = fechados.reduce((s, t) => s + (new Date(t.resolvedAt).getTime() - new Date(t.createdAt).getTime()), 0)
+    return Math.round((soma / fechados.length / 3600000) * 10) / 10
+  }
+  // Horas trabalhadas contam pela DATA DA IDA, não pela do chamado.
+  const minutosNoIntervalo = (de: number, ate: number) =>
+    todos.reduce((soma, t) => soma + (parseJsonArray(t.visitas) as Visita[])
+      .filter((v) => { const x = new Date(`${v.data}T12:00:00`).getTime(); return x >= de && x < ate })
+      .reduce((s, v) => s + (v.minutos || 0), 0), 0)
+
   return {
     ativos: ativos.length,
     emAberto: abertos.length,
     naFila: naFila.length,
     emAtendimento: abertos.filter((t) => !!t.assigneeId).length,
     meus: abertos.filter(meus).length,
+    comparativo: {
+      abertos: { atual: abertosAtual.length, anterior: abertosAnterior.length },
+      concluidos: { atual: concluidosAtual.length, anterior: concluidosAnterior.length },
+      tempoMedio: { atual: horasMedias(concluidosAtual), anterior: horasMedias(concluidosAnterior) },
+      minutosTrabalhados: { atual: minutosNoIntervalo(inicioAtual, agora), anterior: minutosNoIntervalo(inicioAnterior, inicioAtual) },
+    },
     concluidos7d: todos.filter((t) => t.resolvedAt && done.has(t.status) && agora - new Date(t.resolvedAt).getTime() < WEEK_MS).length,
-    serie14d: serie.map(({ chave, ...r }) => r),
-    porStatus: statuses.map((s) => ({ key: s.key, label: s.label, total: ativos.filter((t) => t.status === s.key).length })),
+    // Quantos concluíram dentro da janela escolhida (7, 15 ou 30 dias).
+    concluidosJanela: todos.filter((t) => t.resolvedAt && done.has(t.status) && agora - new Date(t.resolvedAt).getTime() < janela * DIA_MS).length,
+    janelaDias: janela,
+    serie: serie.map(({ chave, ...r }) => r),
+    // Situação dos chamados DA JANELA (7, 15 ou 30 dias) — é a soma do anel do dashboard.
+    porStatus: (() => {
+      const desde = agora - janela * DIA_MS
+      const naJanela = todos.filter((t) => new Date(t.createdAt).getTime() >= desde)
+      return statuses.map((s) => ({ key: s.key, label: s.label, fase: s.fase ?? 'andamento', total: naJanela.filter((t) => t.status === s.key).length }))
+    })(),
     fila: await shapeTickets(naFila.slice(0, 6)),
     ultimosRegistros: u.perms.has('ver_registros')
       ? await shapeRegistros((await prisma.registro.findMany({ orderBy: { ocorridoEm: 'desc' }, take: 50 })).filter((r) => canSeeRegistro(u, r, ids)).slice(0, 6))
@@ -1114,7 +1609,8 @@ app.get('/reports/monthly', async (req: any, reply) => {
   const local = localId ? await prisma.local.findUnique({ where: { id: localId }, select: { id: true, name: true, code: true, city: true } }) : null
   if (localId && !local) return reply.code(404).send()
 
-  const base: any = localId ? { localId } : ids ? { localId: { in: ids } } : {}
+  // Chamado cancelado não entra em relatório: para a operação ele não aconteceu.
+  const base: any = { canceledAt: null, ...(localId ? { localId } : ids ? { localId: { in: ids } } : {}) }
   const periodo = await prisma.ticket.findMany({
     where: { ...base, OR: [{ createdAt: { gte: inicio, lt: fim } }, { resolvedAt: { gte: inicio, lt: fim } }] },
     orderBy: { createdAt: 'asc' },
@@ -1245,7 +1741,7 @@ app.get('/settings', async (req: any, reply) => {
   return Object.fromEntries(rows.filter((s) => !s.key.startsWith('vapid_')).map((s) => [s.key, s.value]))
 })
 
-const SETTINGS_EDITAVEIS = new Set(['ticket_statuses'])
+const SETTINGS_EDITAVEIS = new Set(['ticket_statuses', 'registro_tipos'])
 
 app.patch('/settings/:key', async (req: any, reply) => {
   const u = await requireAuth(req, reply)
@@ -1255,34 +1751,77 @@ app.patch('/settings/:key', async (req: any, reply) => {
   if (!u.perms.has('gerenciar_status_chamados')) return reply.code(403).send({ error: 'sem permissão' })
   let value = String(req.body?.value ?? '')
 
+  if (key === 'registro_tipos') {
+    let arr: any
+    try { arr = JSON.parse(value) } catch { return reply.code(400).send({ error: 'lista de categorias inválida (JSON)' }) }
+    if (!Array.isArray(arr) || arr.length === 0) return reply.code(400).send({ error: 'deixe ao menos uma categoria' })
+    const list: TipoRegistroDef[] = arr.slice(0, 12).map((x: any) => ({
+      key: String(x.key ?? '').slice(0, 40),
+      label: String(x.label ?? '').trim().slice(0, 40),
+      color: /^#[0-9a-fA-F]{6}$/.test(String(x.color ?? '')) ? String(x.color) : '#a1a1aa',
+    }))
+    if (list.some((t) => !t.key || !t.label)) return reply.code(400).send({ error: 'toda categoria precisa de nome' })
+    value = JSON.stringify(list)
+    // Categoria apagada: os registros dela vão para a primeira — registro não se perde.
+    const chaves = list.map((t) => t.key)
+    const orfaos = await prisma.registro.count({ where: { tipo: { notIn: chaves } } })
+    if (orfaos) {
+      await prisma.registro.updateMany({ where: { tipo: { notIn: chaves } }, data: { tipo: list[0].key } })
+      await audit(u, 'editar', 'registro', `${orfaos} registro(s)`, undefined, `Categoria removida — movidos para "${list[0].label}"`)
+    }
+  }
+
   if (key === 'ticket_statuses') {
     let arr: any
     try { arr = JSON.parse(value) } catch { return reply.code(400).send({ error: 'lista de status inválida (JSON)' }) }
     if (!Array.isArray(arr) || arr.length === 0 || arr.some((x) => !x?.key || !String(x.label ?? '').trim())) {
       return reply.code(400).send({ error: 'lista de status inválida' })
     }
-    // Existe exatamente UM status final, preservado pela chave: renomear/reordenar
-    // as colunas não muda quem arquiva.
-    const doneKey = (await ticketStatuses()).find((s) => s.done)?.key ?? 'resolvido'
-    const list: TicketStatusDef[] = arr.slice(0, 12).map((x: any) => ({ key: String(x.key).slice(0, 40), label: String(x.label).trim().slice(0, 40) }))
-    const final = list.find((s) => s.key === doneKey) ?? list[list.length - 1]
-    final.done = true
+    /**
+     * As pontas não se mexem: a entrada e a conclusão são as telas "Abertos" e
+     * "Concluídos". O que o quadro de Em andamento gerencia é só o miolo — e ele
+     * precisa ter pelo menos uma coluna, senão o chamado pego não teria onde ficar.
+     */
+    const atuais = await ticketStatuses()
+    const entrada = atuais.find((s) => s.fase === 'aberto') ?? atuais[0]
+    const final = atuais.find((s) => s.fase === 'concluido') ?? atuais[atuais.length - 1]
+    const miolo: TicketStatusDef[] = arr
+      .map((x: any) => ({ key: String(x.key).slice(0, 40), label: String(x.label).trim().slice(0, 40), fase: 'andamento' as const }))
+      .filter((x: TicketStatusDef) => x.key !== entrada.key && x.key !== final.key)
+      .slice(0, 10)
+    if (miolo.length === 0) return reply.code(400).send({ error: 'Em andamento precisa de ao menos uma coluna' })
+    const list: TicketStatusDef[] = [
+      { ...entrada, fase: 'aberto', done: false },
+      ...miolo,
+      { ...final, fase: 'concluido', done: true },
+    ]
     value = JSON.stringify(list)
     // Coluna apagada leva os chamados dela para a primeira coluna — não os deixa órfãos.
+    // Coluna apagada: os chamados dela ficam na primeira coluna de Em andamento — eles já
+    // estão com um técnico, mandá-los para a fila de abertos perderia o atendimento em curso.
     const chaves = list.map((s) => s.key)
+    const destino = miolo[0]
     const orfaos = await prisma.ticket.findMany({ where: { status: { notIn: chaves } }, select: { code: true } })
     if (orfaos.length) {
-      await prisma.ticket.updateMany({ where: { status: { notIn: chaves } }, data: { status: list[0].key } })
+      await prisma.ticket.updateMany({ where: { status: { notIn: chaves } }, data: { status: destino.key } })
       await audit(u, 'editar', 'chamado', `${orfaos.length} chamado(s)`, undefined,
-        `Coluna removida — movidos para "${list[0].label}": ${orfaos.map((t) => t.code).join(', ')}`.slice(0, 400))
+        `Coluna removida — movidos para "${destino.label}": ${orfaos.map((t) => t.code).join(', ')}`.slice(0, 400))
     }
   }
   const s = await prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } })
-  await audit(u, 'editar', 'config', key, undefined, key === 'ticket_statuses' ? 'Status de chamados atualizados' : `= ${value}`)
+  const oQue = key === 'ticket_statuses' ? 'Colunas de Em andamento atualizadas' : key === 'registro_tipos' ? 'Categorias de registro atualizadas' : `= ${value}`
+  await audit(u, 'editar', 'config', key, undefined, oQue)
   return { key: s.key, value: s.value }
 })
 
 // ----------------------------- web push -----------------------------
+
+/** Lista de eventos que o usuário pode ligar/desligar (a tela de notificações lê daqui). */
+app.get('/notifications/events', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  return EVENTOS.map((e) => ({ ...e }))
+})
 
 app.get('/push/vapid', async (req: any, reply) => {
   const u = await requireAuth(req, reply)

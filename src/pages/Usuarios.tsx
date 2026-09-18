@@ -64,6 +64,8 @@ export default function Usuarios() {
   const canCreateUsers = useCan('criar_usuarios')
   const canEditUsers = useCan('editar_usuarios')
   const canManageRoles = useCan('gerenciar_papeis')
+  // Qual perfil está aberto na versão de celular da matriz.
+  const [perfilAberto, setPerfilAberto] = useState('role-tecnico')
 
   const modules = useMemo(() => [...new Set(permissions.map((p) => p.module))], [permissions])
   const [editing, setEditing] = useState<User | 'new' | null>(null)
@@ -244,7 +246,53 @@ export default function Usuarios() {
         {canManageRoles && <Button variant="subtle" onClick={() => { setRoleForm({ name: '', color: '#38bdf8' }); setNewRole(true) }}><Plus size={15} /> Novo perfil</Button>}
       </div>
 
-      <Card className="overflow-x-auto">
+      {/* Celular: a matriz não cabe. Escolhe-se um perfil e se lê as permissões dele. */}
+      <div className="space-y-3 md:hidden">
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+          {roles.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => setPerfilAberto(r.id)}
+              aria-pressed={perfilAberto === r.id}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium ${
+                perfilAberto === r.id ? 'border-red-700 bg-red-500/10 text-red-300' : 'border-slate-800 text-slate-400'
+              }`}
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: r.color }} /> {r.name}
+            </button>
+          ))}
+        </div>
+        {(() => {
+          const r = roles.find((x) => x.id === perfilAberto) ?? roles[0]
+          if (!r) return null
+          return (
+            <Card className="divide-y divide-slate-800/60">
+              {modules.map((mod) => (
+                <div key={mod} className="px-3 py-2">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{mod}</div>
+                  <div className="space-y-1">
+                    {permissions.filter((p) => p.module === mod).map((p) => (
+                      <label key={p.id} className="flex items-center justify-between gap-3 py-1 text-[13px] text-slate-300">
+                        <span className="min-w-0">{p.label}</span>
+                        <input
+                          type="checkbox"
+                          aria-label={`${p.label} — ${r.name}`}
+                          checked={r.permissions.includes(p.id)}
+                          disabled={!canManageRoles || r.system}
+                          onChange={() => toggleRolePermission(r.id, p.id)}
+                          className="h-5 w-5 shrink-0 accent-red-500 disabled:opacity-50"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )
+        })()}
+      </div>
+
+      <Card className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-800 text-left">
@@ -289,7 +337,7 @@ export default function Usuarios() {
           </tbody>
         </table>
       </Card>
-      <p className="mt-2 text-[11px] text-slate-500">O perfil <span className="text-slate-300">Administrador</span> é de sistema e recebe toda permissão. <span className="text-slate-300">Gestor</span> coordena a operação (sem mexer em perfis e sistema); <span className="text-slate-300">Técnico</span> pega e atende chamados; <span className="text-slate-300">Operador</span> abre chamados e faz registros. Alterações vão para a auditoria.</p>
+      <p className="mt-2 text-[11px] text-slate-500">O perfil <span className="text-slate-300">Administrador</span> é de sistema e recebe toda permissão. <span className="text-slate-300">Gestor</span> acompanha a operação — vê tudo, abre chamado e cuida de relatórios, locais e usuários, sem pegar nem atender chamado; <span className="text-slate-300">Técnico</span> pega e atende; <span className="text-slate-300">Operador</span> abre chamados e faz registros. Alterações vão para a auditoria.</p>
 
       {/* Modal usuário */}
       <Modal

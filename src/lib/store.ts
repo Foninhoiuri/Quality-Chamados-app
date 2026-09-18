@@ -58,7 +58,7 @@ interface AppState {
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
   changePassword: (newPassword: string, currentPassword?: string) => Promise<void>
-  updateProfile: (patch: { name?: string; phone?: string; email?: string; avatar?: string | null }) => Promise<void>
+  updateProfile: (patch: { name?: string; phone?: string; email?: string; avatar?: string | null; notifPrefs?: Record<string, boolean> }) => Promise<void>
 
   refreshLocais: () => Promise<void>
   refreshUsers: () => Promise<void>
@@ -90,6 +90,9 @@ interface AppState {
   acceptTicket: (id: string) => Promise<void>
   releaseTicket: (id: string) => Promise<void>
   archiveTicket: (id: string) => Promise<void>
+  unarchiveTicket: (id: string) => Promise<void>
+  cancelTicket: (id: string, motivo?: string) => Promise<void>
+  shareTicket: (id: string, userIds: string[]) => Promise<void>
   removeTicket: (id: string) => Promise<void>
 
   setSetting: (key: string, value: string) => Promise<void>
@@ -262,7 +265,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
   addTicket: async (input) => {
     await api.createTicket(input)
-    await get().refreshTickets()
+    await Promise.all([get().refreshTickets(), get().refreshLocais().catch(() => {})])
   },
   updateTicket: async (id, patch) => {
     await api.updateTicket(id, patch)
@@ -278,6 +281,18 @@ export const useStore = create<AppState>()((set, get) => ({
   },
   archiveTicket: async (id) => {
     await api.archiveTicket(id)
+    await get().refreshTickets()
+  },
+  unarchiveTicket: async (id) => {
+    await api.unarchiveTicket(id)
+    await get().refreshTickets()
+  },
+  cancelTicket: async (id, motivo) => {
+    await api.cancelTicket(id, motivo)
+    await get().refreshTickets()
+  },
+  shareTicket: async (id, userIds) => {
+    await api.shareTicket(id, userIds)
     await get().refreshTickets()
   },
   removeTicket: async (id) => {
