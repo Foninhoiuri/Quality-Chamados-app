@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Pencil, Trash2, MessageSquare, User as UserIcon, Undo2, Building2, Clock, Archive, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MoveRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, User as UserIcon, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MoveRight } from 'lucide-react'
 import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
@@ -61,7 +61,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const locais = useStore((s) => s.locais)
   const settings = useStore((s) => s.settings)
   const setSetting = useStore((s) => s.setSetting)
-  const { addTicket, updateTicket, removeTicket, cancelTicket, acceptTicket, releaseTicket, archiveTicket, refreshTickets, showToast } = useStore()
+  const { addTicket, updateTicket, removeTicket, cancelTicket, acceptTicket, releaseTicket, refreshTickets, showToast } = useStore()
   const me = useCurrentUser()
   const canManage = useCan('gerenciar_chamados')
   const canCreate = useCan('criar_chamados')
@@ -77,6 +77,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const canShare = useCan('compartilhar_chamados')
   const canDatas = useCan('ajustar_datas_chamado')
   const canHistorico = useCan('ver_arquivados')
+  const canEditarConcluido = useCan('editar_concluidos')
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -137,6 +138,9 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
    * Quem pode cancelar este chamado: a permissão, ou quem abriu enquanto ele ainda está
    * na fila — desfazer o chamado que você mesmo acabou de abrir não exige ser gestor.
    */
+  /** Chamado concluído é registro fechado: mexer nele exige permissão. */
+  const podeMexer = (t: Ticket) => !doneKeys.has(t.status) || canEditarConcluido
+
   function podeExcluir(t: Ticket): boolean {
     if (canDelete) return true
     // Quem abriu desfaz o próprio chamado enquanto ninguém pegou (o conteúdo fica na auditoria).
@@ -209,11 +213,6 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
       irParaFase('aberto', t.id)
     } catch (e: any) { showToast(e?.message ?? 'Não foi possível devolver o chamado') }
   }
-  async function finalizar(t: Ticket) {
-    try { await archiveTicket(t.id); showToast(`${t.code} foi para o histórico`); if (detailId === t.id) closeDetail() }
-    catch (e: any) { showToast(e?.message ?? 'Não foi possível finalizar') }
-  }
-
   /** Conclui o chamado e leva para a lista dos concluídos. */
   async function concluir(t: Ticket) {
     if (!doneKey) return showToast('O quadro não tem coluna de conclusão')
@@ -326,7 +325,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             key={t.id}
             t={t}
             concluido={doneKeys.has(t.status)}
-            canManage={canManage}
+            canManage={canManage && podeMexer(t)}
             canDelete={podeExcluir(t)}
             canCancel={podeCancelar(t) && !podeExcluir(t)}
             etapa={proximaEtapa(t)}
@@ -335,12 +334,11 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             onCancel={() => setCanceling(t)}
             onMover={fase === 'andamento' && canManage && colunas.length > 1 ? () => setMovendo(t) : undefined}
             onDetail={() => openDetail(t)}
-            onFinish={canFinish && doneKeys.has(t.status) ? () => finalizar(t) : undefined}
           />
         )
 
         if (fase === 'concluido') {
-          return <ListaConcluidos rows={rows} filtros={filtros} labelOf={labelOf} podeHistorico={canHistorico} podeDesarquivar={canFinish} onDetail={openDetail} />
+          return <ListaConcluidos rows={rows} filtros={filtros} labelOf={labelOf} podeHistorico={canHistorico} onDetail={openDetail} />
         }
 
         // Abertos: é uma fila, não um quadro — cartões lado a lado, do mais antigo na espera.
@@ -486,27 +484,20 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             <FieldBox label="Local" hint="não está na lista? cadastre por aqui mesmo">
               <LocalSelect value={form.localId} onChange={(v) => setForm({ ...form, localId: v })} />
             </FieldBox>
-            {canManage && editing !== 'new' && (
-              <Field label="Status">
-                <Select className="w-full" value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-                  {statuses.map((c) => (<option key={c.key} value={c.key}>{c.label}</option>))}
-                </Select>
-              </Field>
-            )}
+
           </div>
 
-          {/* Lançamento fora da hora: o chamado foi pedido dias antes de alguém abrir. */}
-          {canDatas && !form.jaRealizado && (
+          {/* Data e hora do chamado se ajustam DEPOIS, na edição, por quem tem a permissão —
+              na hora de abrir, o campo só atrapalha quem está atendendo alguém. */}
+          {canDatas && !form.jaRealizado && editing !== 'new' && (
             <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
               <div className="mb-1.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-300"><CalendarClock size={13} className="text-slate-500" /> Datas do chamado</div>
-              <p className="mb-2 text-[11px] text-slate-500">Para lançar o que foi solicitado dias atrás. Fica registrado na auditoria.</p>
+              <p className="mb-2 text-[11px] text-slate-500">Para acertar um chamado que foi solicitado antes de alguém abrir. Fica registrado na auditoria.</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Aberto em"><Input type="datetime-local" value={form.createdAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, createdAt: e.target.value })} /></Field>
-                {editing !== 'new' && (
-                  <Field label="Concluído em" hint="vazio = ainda não concluído">
-                    <Input type="datetime-local" value={form.resolvedAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, resolvedAt: e.target.value })} />
-                  </Field>
-                )}
+                <Field label="Concluído em" hint="vazio = ainda não concluído">
+                  <Input type="datetime-local" value={form.resolvedAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, resolvedAt: e.target.value })} />
+                </Field>
               </div>
             </div>
           )}
@@ -605,7 +596,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           <>
             {/* Fechar (do próprio modal), o atendimento e a ação da etapa. O resto mora
                 dentro do modal — rodapé com seis botões não se usa com uma mão só. */}
-            {canAtender && (ehMeu(detail) || canCorrigir) && detail.assigneeId && (
+            {canAtender && (ehMeu(detail) || canCorrigir) && detail.assigneeId && podeMexer(detail) && (
               <Button variant="subtle" onClick={() => setAtendendo(detail)}><Wrench size={14} /> Atendimento</Button>
             )}
             {(() => {
@@ -624,13 +615,12 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             concluido={doneKeys.has(detail.status)}
             onRefresh={() => refreshTickets()}
             // Quem pegou preenche; quem corrige atendimento (administrador) também.
-            podeAtender={canAtender && (ehMeu(detail) || canCorrigir)}
+            podeAtender={canAtender && (ehMeu(detail) || canCorrigir) && podeMexer(detail)}
             podeCompartilhar={canShare && !!detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir)}
             onEditarAtendimento={() => setAtendendo(detail)}
             secundarias={[
               detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir) && { label: 'Devolver à fila', icone: <Undo2 size={13} />, onClick: () => devolver(detail) },
-              canManage && { label: 'Editar dados', icone: <Pencil size={13} />, onClick: () => { const d = detail; closeDetail(); openEdit(d) } },
-              canFinish && doneKeys.has(detail.status) && { label: 'Arquivar no histórico', icone: <Archive size={13} />, onClick: () => finalizar(detail) },
+              canManage && podeMexer(detail) && { label: 'Editar dados', icone: <Pencil size={13} />, onClick: () => { const d = detail; closeDetail(); openEdit(d) } },
               podeCancelar(detail) && !podeExcluir(detail) && { label: 'Cancelar chamado', icone: <Ban size={13} />, perigo: true, onClick: () => setCanceling(detail) },
               podeExcluir(detail) && { label: 'Excluir chamado', icone: <Trash2 size={13} />, perigo: true, onClick: () => setDeleting(detail) },
             ]}
@@ -770,7 +760,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
 
       {/* Atendimento só existe depois que alguém pega o chamado — na fila ele seria uma
           caixa vazia pedindo dados que ninguém pode preencher ainda. */}
-      {emAtendimento && <AtendimentoTecnico t={t} podeEditar={podeAtender} onEditar={onEditarAtendimento} />}
+      {emAtendimento && <AtendimentoTecnico t={t} podeEditar={podeAtender} onEditar={onEditarAtendimento} onSalvo={onRefresh} />}
       <div className="border-t border-slate-800 pt-3">
         <TicketComments ticketId={t.id} podeComentar={noChamado} onCountChange={onRefresh} />
       </div>
@@ -794,7 +784,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onDetail, onFinish }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onDetail }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
@@ -808,7 +798,6 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
   /** Mover para outra coluna sem arrastar (celular). */
   onMover?: () => void
   onDetail: () => void
-  onFinish?: () => void
 }) {
   const allPhotos = [...(t.photos ?? []), ...(t.donePhotos ?? [])]
   const thumbs = allPhotos.slice(0, 4)
@@ -894,11 +883,6 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
         </button>
       )}
 
-      {concluido && onFinish && (
-        <button onClick={stop(onFinish)} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700" title="Manda para o histórico agora, sem esperar a semana">
-          <Archive size={13} /> Arquivar no histórico
-        </button>
-      )}
     </div>
   )
 }

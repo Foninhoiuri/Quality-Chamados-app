@@ -27,6 +27,7 @@ export const PERMISSIONS: PermDef[] = [
   { id: 'corrigir_atendimento', label: 'Corrigir atendimento e devolver chamado de outro técnico', module: 'Chamados' },
   { id: 'concluir_chamados', label: 'Concluir chamados', module: 'Chamados' },
   { id: 'reabrir_chamados', label: 'Reabrir chamados concluídos', module: 'Chamados' },
+  { id: 'editar_concluidos', label: 'Editar chamado já concluído', module: 'Chamados' },
   { id: 'cancelar_chamados', label: 'Cancelar chamados de outras pessoas', module: 'Chamados' },
   { id: 'compartilhar_chamados', label: 'Compartilhar chamado com outro técnico', module: 'Chamados' },
   { id: 'ajustar_datas_chamado', label: 'Editar datas e horas do chamado (lançamento retroativo)', module: 'Chamados' },
@@ -77,6 +78,7 @@ const FORA_DO_GESTOR = new Set([
   'gerenciar_chamados', 'aceitar_chamados', 'registrar_atendimento', 'corrigir_atendimento',
   'concluir_chamados', 'reabrir_chamados', 'excluir_chamados', 'cancelar_chamados',
   'compartilhar_chamados', 'ajustar_datas_chamado', 'gerenciar_status_chamados',
+  'editar_concluidos',
 ])
 
 export const ROLES: { id: string; name: string; color: string; system?: boolean; permissions: string[] }[] = [
@@ -109,4 +111,4 @@ export const ROLES_ANTIGOS = ['role-solicitante', 'role-leitura']
  * Sobe quando a definição dos perfis-semente muda de forma que precisa ser aplicada
  * por inteiro (não só somando permissão nova). Ver bootstrap.ts.
  */
-export const ROLES_VERSAO = '4'
+export const ROLES_VERSAO = '5'

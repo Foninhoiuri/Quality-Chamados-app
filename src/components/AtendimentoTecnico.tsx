@@ -8,7 +8,7 @@ import { fmtMinutos, hojeIso } from '@/lib/utils'
 import type { ItemAtendimento, Ticket, Visita } from '@/lib/types'
 
 /** `modo` é o que o técnico sabe na hora: o horário que chegou e saiu, ou só quanto tempo ficou. */
-interface VisitaForm { id?: string; data: string; inicio: string; fim: string; duracao: string; modo: 'horario' | 'tempo'; tecnicoNome?: string }
+interface VisitaForm { id?: string; data: string; inicio: string; fim: string; duracao: string; modo: 'horario' | 'tempo'; tecnicoId?: string | null; tecnicoNome?: string }
 interface ItemForm { id?: string; descricao: string; quantidade: string; tipo: 'trocado' | 'comprado'; valor: string }
 
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -47,6 +47,7 @@ const paraForm = (t: Ticket) => ({
     id: v.id, data: v.data, inicio: v.inicio ?? '', fim: v.fim ?? '',
     duracao: v.inicio && v.fim ? '' : comoTexto(v.minutos),
     modo: v.inicio && v.fim ? 'horario' : 'tempo',
+    tecnicoId: v.tecnicoId,
     tecnicoNome: v.tecnicoNome,
   })),
   itens: (t.itens ?? []).map<ItemForm>((i) => ({ id: i.id, descricao: i.descricao, quantidade: String(i.quantidade), tipo: i.tipo, valor: i.valor == null ? '' : String(i.valor) })),
@@ -68,8 +69,44 @@ function Texto({ label, valor }: { label: string; valor?: string | null }) {
  * modal próprio (`ModalAtendimento`), que no celular ocupa a tela inteira em vez de
  * empurrar tudo para baixo de um formulário comprido.
  */
-export function AtendimentoTecnico({ t, podeEditar, onEditar }: { t: Ticket; podeEditar: boolean; onEditar: () => void }) {
+export function AtendimentoTecnico({ t, podeEditar, onEditar, onSalvo }: {
+  t: Ticket
+  podeEditar: boolean
+  onEditar: () => void
+  /** Recarrega o chamado depois de marcar chegada ou saída. */
+  onSalvo?: () => void
+}) {
+  const showToast = useStore((s) => s.showToast)
+  const [marcando, setMarcando] = useState(false)
   const vazio = !t.analise && !t.possivelSolucao && !t.solucao && !t.acoesTomadas && !(t.visitas?.length) && !(t.itens?.length) && !(t.donePhotos?.length)
+
+  // Ida em andamento: chegou e ainda não saiu. É ela que decide o botão de um toque.
+  const emAndamento = (t.visitas ?? []).find((v) => v.inicio && !v.fim)
+
+  /**
+   * CHEGUEI / TERMINEI em um toque, salvando na hora. O formulário continua ali para
+   * corrigir depois — o que não dá é pedir formulário a quem acabou de chegar no portão.
+   */
+  async function marcarPonto() {
+    setMarcando(true)
+    try {
+      const agora = horaAgora()
+      const visitas = (t.visitas ?? []).map((v) => ({ ...v }))
+      if (emAndamento) {
+        const alvo = visitas.find((v) => v.id === emAndamento.id)
+        if (alvo) alvo.fim = agora
+      } else {
+        visitas.push({ data: hojeIso(), inicio: agora, fim: null, minutos: 0 })
+      }
+      await api.saveAtendimento(t.id, { visitas })
+      onSalvo?.()
+      showToast(emAndamento ? `Saída marcada às ${agora}` : `Chegada marcada às ${agora}`)
+    } catch (e: any) {
+      showToast(e?.message ?? 'Não foi possível marcar a hora')
+    } finally {
+      setMarcando(false)
+    }
+  }
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/30 p-3">
@@ -79,6 +116,21 @@ export function AtendimentoTecnico({ t, podeEditar, onEditar }: { t: Ticket; pod
           {!!t.minutosTotais && <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-normal text-slate-300"><Clock size={11} /> {fmtMinutos(t.minutosTotais)}</span>}
         </div>
       </div>
+
+      {podeEditar && (
+        <button
+          onClick={marcarPonto}
+          disabled={marcando}
+          className={`mb-3 flex w-full items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold disabled:opacity-60 ${
+            emAndamento
+              ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+              : 'border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700'
+          }`}
+        >
+          {marcando ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />}
+          {emAndamento ? `Terminei agora (cheguei ${emAndamento.inicio})` : 'Cheguei agora'}
+        </button>
+      )}
 
       {vazio ? (
         /* Vazio, o preencher É a seção: um alvo grande no meio do card, não um botãozinho
@@ -109,8 +161,16 @@ export function AtendimentoTecnico({ t, podeEditar, onEditar }: { t: Ticket; pod
               <div className="space-y-1">
                 {t.visitas.map((v) => (
                   <div key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-slate-900/60 px-2 py-1 text-[12px]">
-                    <span className="text-slate-300">{new Date(v.data + 'T12:00').toLocaleDateString('pt-BR')}{v.inicio && v.fim ? ` · ${v.inicio} → ${v.fim}` : ''}</span>
-                    <span className="text-slate-400">{v.tecnicoNome} · <span className="font-medium text-slate-200">{fmtMinutos(v.minutos)}</span></span>
+                    <span className="text-slate-300">
+                      {new Date(v.data + 'T12:00').toLocaleDateString('pt-BR')}
+                      {v.inicio && v.fim ? ` · ${v.inicio} → ${v.fim}` : v.inicio ? ` · chegou ${v.inicio}` : ''}
+                    </span>
+                    <span className="text-slate-400">
+                      {v.tecnicoNome} ·{' '}
+                      {v.inicio && !v.fim
+                        ? <span className="font-medium text-emerald-300">no local agora</span>
+                        : <span className="font-medium text-slate-200">{fmtMinutos(v.minutos)}</span>}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -173,6 +233,14 @@ export function ModalAtendimento({ t, podeConcluir, onFechar, onSalvo, onConclui
   useEffect(() => { setForm(paraForm(t)) }, [t.id])
 
   const totalForm = form.visitas.reduce((s, v) => s + (minutosDe(v) ?? 0), 0)
+  /**
+   * Quem pode assinar uma ida: o responsável e quem está junto no chamado. Cada ida é de
+   * UM técnico — é isso que faz o chamado compartilhado somar as horas sem duplicá-las.
+   */
+  const equipe = [
+    ...(t.assigneeId ? [{ id: t.assigneeId, name: t.assigneeName ?? 'responsável' }] : []),
+    ...(t.sharedWith ?? []),
+  ]
   const setVisita = (i: number, p: Partial<VisitaForm>) => setForm({ ...form, visitas: form.visitas.map((v, j) => (j === i ? { ...v, ...p } : v)) })
   const setItem = (i: number, p: Partial<ItemForm>) => setForm({ ...form, itens: form.itens.map((v, j) => (j === i ? { ...v, ...p } : v)) })
 
@@ -182,7 +250,7 @@ export function ModalAtendimento({ t, podeConcluir, onFechar, onSalvo, onConclui
       const minutos = minutosDe(v)
       if (!v.data) return showToast(`Ida ${i + 1}: informe a data`)
       if (!minutos) return showToast(`Ida ${i + 1}: ${v.modo === 'horario' ? 'informe a chegada e a saída' : 'informe quanto tempo você ficou'}`)
-      visitas.push({ id: v.id, data: v.data, inicio: temHorario(v) ? v.inicio : null, fim: temHorario(v) ? v.fim : null, minutos })
+      visitas.push({ id: v.id, data: v.data, inicio: temHorario(v) ? v.inicio : null, fim: temHorario(v) ? v.fim : null, minutos, tecnicoId: v.tecnicoId })
     }
     const itens: ItemAtendimento[] = []
     for (const [i, it] of form.itens.entries()) {
@@ -296,7 +364,17 @@ export function ModalAtendimento({ t, podeConcluir, onFechar, onSalvo, onConclui
                       ))}
                     </div>
                   )}
-                  {v.tecnicoNome && <div className="mt-2 text-[11px] text-slate-500">registrada por {v.tecnicoNome}</div>}
+                  {equipe.length > 1 ? (
+                    <div className="mt-2">
+                      <Field label="Quem foi nesta ida">
+                        <Select className="w-full" value={v.tecnicoId ?? equipe[0].id} onValueChange={(id) => setVisita(i, { tecnicoId: id })}>
+                          {equipe.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                        </Select>
+                      </Field>
+                    </div>
+                  ) : (
+                    v.tecnicoNome && <div className="mt-2 text-[11px] text-slate-500">registrada por {v.tecnicoNome}</div>
+                  )}
                 </div>
               )
             })}

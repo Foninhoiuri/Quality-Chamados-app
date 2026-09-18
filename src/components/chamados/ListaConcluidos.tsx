@@ -33,22 +33,19 @@ function inicioDaSemana(d: Date): Date {
 const curto = (d: Date) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 
 /**
- * CONCLUÍDOS: uma lista só. Os recém-concluídos (ainda no quadro) e os já arquivados
- * aparecem juntos, na mesma linha do tempo — a diferença vira uma etiqueta, não outra
- * tela. Navega semana a semana; "Tudo" solta a lista inteira.
+ * CONCLUÍDOS: uma lista só. Recém-concluídos e histórico antigo aparecem juntos e iguais
+ * — concluído é concluído, sem estado "arquivado" para a pessoa administrar. Navega
+ * semana a semana; "Tudo" solta a lista inteira.
  */
-export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeDesarquivar, onDetail }: {
+export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetail }: {
   /** Concluídos que ainda estão no quadro, já filtrados. */
   rows: Ticket[]
   /** Os mesmos filtros da barra de cima, aplicados também ao histórico. */
   filtros: FiltroChamados
   labelOf: (k: string) => string
   podeHistorico: boolean
-  podeDesarquivar: boolean
   onDetail: (t: Ticket) => void
 }) {
-  const archiveTicket = useStore((s) => s.archiveTicket)
-  const unarchiveTicket = useStore((s) => s.unarchiveTicket)
   const showToast = useStore((s) => s.showToast)
   const me = useCurrentUser()
 
@@ -112,21 +109,8 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeDes
   const temAnterior = !!(maisAntigo && maisAntigo.getTime() < semana.getTime())
   const temProxima = fimDaSemana.getTime() < Date.now()
 
-  async function arquivar(t: Ticket) {
-    setOcupado(t.id)
-    try { await archiveTicket(t.id); await carregarHistorico(); showToast(`${t.code} foi para o histórico`) }
-    catch (e: any) { showToast(e?.message ?? 'Não foi possível arquivar') }
-    finally { setOcupado(null) }
-  }
-  async function devolver(t: Ticket) {
-    setOcupado(t.id)
-    try { await unarchiveTicket(t.id); await carregarHistorico(); showToast(`${t.code} voltou para os concluídos`) }
-    catch (e: any) { showToast(e?.message ?? 'Não foi possível devolver') }
-    finally { setOcupado(null) }
-  }
-
-  /** Arquivado = já saiu do quadro (ou nunca esteve na lista de ativos). */
-  const ehArquivado = (t: Ticket) => !!t.archivedAt || !rows.some((r) => r.id === t.id)
+  /** Só a lista ativa abre o chamado inteiro; o histórico antigo é leitura aqui mesmo. */
+  const estaNaListaAtiva = (t: Ticket) => rows.some((r) => r.id === t.id)
   const abertoNoMobile = aberto ? todos.find((t) => t.id === aberto) ?? null : null
 
   if (historico === null) return <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-slate-600" /></div>
@@ -209,10 +193,10 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeDes
               <ol className="relative ml-2 border-l border-slate-800">
                 {g.itens.map((t) => {
                   const expandido = aberto === t.id
-                  const arquivado = ehArquivado(t)
+                  const naLista = estaNaListaAtiva(t)
                   return (
                     <li key={t.id} className="relative mb-3 ml-5 last:mb-0">
-                      <span className={`absolute -left-[27px] top-3.5 h-3 w-3 rounded-full border-2 border-[var(--app-bg)] ${arquivado ? 'bg-slate-600' : 'bg-emerald-500'}`} />
+                      <span className="absolute -left-[27px] top-3.5 h-3 w-3 rounded-full border-2 border-[var(--app-bg)] bg-emerald-500" />
                       <div className="rounded-lg border border-slate-800 bg-slate-900/50">
                         <button onClick={() => setAberto(expandido ? null : t.id)} aria-expanded={expandido} className="flex w-full items-start gap-2 px-3 py-2.5 text-left">
                           {expandido ? <ChevronDown size={15} className="mt-0.5 shrink-0 text-slate-500" /> : <ChevronRight size={15} className="mt-0.5 shrink-0 text-slate-500" />}
@@ -220,9 +204,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeDes
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-mono text-[11px] text-red-400">{t.code}</span>
                               <span className="min-w-0 truncate text-sm font-medium text-slate-100">{t.title}</span>
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] ${arquivado ? 'bg-slate-800 text-slate-400' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                                {arquivado ? 'arquivado' : labelOf(t.status)}
-                              </span>
+                              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">{labelOf(t.status)}</span>
                             </div>
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
                               {t.localName && <span className="inline-flex items-center gap-1"><Building2 size={11} /> {t.localName}</span>}
@@ -237,15 +219,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeDes
                         {/* No desktop o chamado abre ali mesmo; no celular vira modal —
                             ler um chamado inteiro dentro de uma lista espremida não funciona. */}
                         {expandido && !mobile && (
-                          <ConteudoConcluido
-                            t={t}
-                            arquivado={arquivado}
-                            podeDesarquivar={podeDesarquivar}
-                            ocupado={ocupado === t.id}
-                            onDetail={() => onDetail(t)}
-                            onArquivar={() => arquivar(t)}
-                            onDevolver={() => devolver(t)}
-                          />
+                          <ConteudoConcluido t={t} podeAbrir={naLista} onDetail={() => onDetail(t)} />
                         )}
                       </div>
                     </li>
@@ -273,36 +247,18 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeDes
             <div className="min-w-0">
               <div className="font-mono text-[11px] tracking-wide text-red-400/80">{abertoNoMobile.code}</div>
               <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">{abertoNoMobile.title}</h2>
-              <span className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${ehArquivado(abertoNoMobile) ? 'bg-slate-800 text-slate-400' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                <Check size={11} /> {ehArquivado(abertoNoMobile) ? 'arquivado' : labelOf(abertoNoMobile.status)}
+              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                <Check size={11} /> {labelOf(abertoNoMobile.status)}
                 {abertoNoMobile.resolvedAt ? ` · ${fmtDataHora(abertoNoMobile.resolvedAt)}` : ''}
               </span>
             </div>
           }
           fechar="Fechar"
-          footer={
-            <>
-              {podeDesarquivar && (ehArquivado(abertoNoMobile) ? (
-                <Button onClick={() => devolver(abertoNoMobile)} disabled={ocupado === abertoNoMobile.id}>
-                  {ocupado === abertoNoMobile.id ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />} Devolver aos concluídos
-                </Button>
-              ) : (
-                <Button onClick={() => arquivar(abertoNoMobile)} disabled={ocupado === abertoNoMobile.id}>
-                  {ocupado === abertoNoMobile.id ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} />} Arquivar
-                </Button>
-              ))}
-            </>
-          }
+          footer={estaNaListaAtiva(abertoNoMobile)
+            ? <Button onClick={() => { setAberto(null); onDetail(abertoNoMobile) }}>Abrir chamado</Button>
+            : undefined}
         >
-          <ConteudoConcluido
-            t={abertoNoMobile}
-            arquivado={ehArquivado(abertoNoMobile)}
-            podeDesarquivar={false}
-            ocupado={ocupado === abertoNoMobile.id}
-            onDetail={() => { setAberto(null); onDetail(abertoNoMobile) }}
-            onArquivar={() => arquivar(abertoNoMobile)}
-            onDevolver={() => devolver(abertoNoMobile)}
-          />
+          <ConteudoConcluido t={abertoNoMobile} podeAbrir={false} onDetail={() => { setAberto(null); onDetail(abertoNoMobile) }} />
         </Modal>
       )}
     </div>
@@ -330,14 +286,11 @@ function Bloco({ label, valor }: { label: string; valor?: string | null }) {
 
 
 /** O chamado concluído por inteiro: o que aconteceu, o atendimento, as horas e as fotos. */
-function ConteudoConcluido({ t, arquivado, podeDesarquivar, ocupado, onDetail, onArquivar, onDevolver }: {
+function ConteudoConcluido({ t, podeAbrir, onDetail }: {
   t: Ticket
-  arquivado: boolean
-  podeDesarquivar: boolean
-  ocupado: boolean
+  /** Chamado ainda na lista ativa: dá para abrir o chamado inteiro. */
+  podeAbrir: boolean
   onDetail: () => void
-  onArquivar: () => void
-  onDevolver: () => void
 }) {
   return (
   <div className="space-y-3 border-t border-slate-800 px-3 py-3 text-[13px]">
@@ -406,18 +359,11 @@ function ConteudoConcluido({ t, arquivado, podeDesarquivar, ocupado, onDetail, o
       </div>
     )}
   
-    <div className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-2">
-      {!arquivado && <Button size="sm" variant="subtle" onClick={() => onDetail()}>Abrir chamado</Button>}
-      {podeDesarquivar && (arquivado ? (
-        <Button size="sm" variant="subtle" onClick={() => onDevolver()} disabled={ocupado} title="Tira do histórico e devolve para os concluídos">
-          {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />} Devolver aos concluídos
-        </Button>
-      ) : (
-        <Button size="sm" variant="subtle" onClick={() => onArquivar()} disabled={ocupado} title="Manda para o histórico agora, sem esperar a semana">
-          {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />} Arquivar
-        </Button>
-      ))}
-    </div>
+    {podeAbrir && (
+      <div className="flex justify-end border-t border-slate-800 pt-2">
+        <Button size="sm" variant="subtle" onClick={() => onDetail()}>Abrir chamado</Button>
+      </div>
+    )}
   </div>
   )
 }

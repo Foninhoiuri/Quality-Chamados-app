@@ -243,7 +243,7 @@ const novoId = () => crypto.randomBytes(6).toString('hex')
  * do início = passou da meia-noite). Sem os dois, vale o tempo informado à mão.
  * Quem registrou a ida não é trocado numa edição — uma ida nova é de quem está salvando.
  */
-function cleanVisitas(arr: any, antes: Visita[], u: AuthUser): Visita[] | string {
+function cleanVisitas(arr: any, antes: Visita[], u: AuthUser, equipe: { id: string; name: string }[] = []): Visita[] | string {
   if (!Array.isArray(arr)) return 'visitas inválidas'
   const porId = new Map(antes.map((v) => [v.id, v]))
   const out: Visita[] = []
@@ -256,17 +256,24 @@ function cleanVisitas(arr: any, antes: Visita[], u: AuthUser): Visita[] | string
     if (inicio && fim) {
       minutos = minutosDoDia(fim) - minutosDoDia(inicio)
       if (minutos <= 0) minutos += 24 * 60
+    } else if (inicio) {
+      // Ida EM ANDAMENTO: o técnico marcou a chegada e ainda está no local. Conta zero
+      // até ele marcar a saída — é o que permite registrar com um toque, sem formulário.
+      minutos = 0
     } else {
       minutos = Math.round(Number(v?.minutos))
       if (!Number.isFinite(minutos) || minutos <= 0) return 'informe hora de início e saída, ou o tempo no local'
     }
     if (minutos > 24 * 60) return 'uma ida ao local não pode passar de 24 horas'
     const existente = v?.id ? porId.get(String(v.id)) : undefined
+    // Uma ida pertence a UM técnico — é o que impede o chamado compartilhado de contar as
+    // mesmas horas duas vezes. Quem preenche diz qual dos técnicos do chamado foi nela.
+    const escolhido = v?.tecnicoId ? equipe.find((p) => p.id === String(v.tecnicoId)) : undefined
     out.push({
       id: existente?.id ?? novoId(),
       data, inicio, fim, minutos,
-      tecnicoId: existente ? existente.tecnicoId : u.sub,
-      tecnicoNome: existente ? existente.tecnicoNome : u.name,
+      tecnicoId: escolhido?.id ?? existente?.tecnicoId ?? u.sub,
+      tecnicoNome: escolhido?.name ?? existente?.tecnicoNome ?? u.name,
     })
   }
   return out
@@ -1020,6 +1027,15 @@ app.patch('/tickets/:id', async (req: any, reply) => {
   if (!canSeeTicket(u, before, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
   const b = req.body ?? {}
   const done = await doneKeys()
+  /**
+   * Chamado concluído é registro fechado: é o que foi entregue e o que o relatório já
+   * contou. Mexer nele exige `editar_concluidos`; reabrir continua sendo assunto de
+   * `reabrir_chamados`.
+   */
+  if (done.has(before.status) && !u.perms.has('editar_concluidos')) {
+    const soReabrindo = 'status' in b && !done.has(b.status) && Object.keys(b).length === 1
+    if (!soReabrindo) return reply.code(403).send({ error: 'chamado concluído — sem permissão para editar' })
+  }
   if (b.status && b.status !== before.status) {
     if (!(await ticketStatuses()).some((s) => s.key === b.status)) return reply.code(400).send({ error: 'status inválido' })
     if (done.has(b.status) && !done.has(before.status) && !u.perms.has('concluir_chamados')) {
@@ -1280,6 +1296,9 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
   if (before.assigneeId !== u.sub && !u.perms.has('corrigir_atendimento')) {
     return reply.code(403).send({ error: before.assigneeId ? 'só o responsável preenche o atendimento' : 'pegue o chamado antes de registrar o atendimento' })
   }
+  if ((await doneKeys()).has(before.status) && !u.perms.has('editar_concluidos')) {
+    return reply.code(403).send({ error: 'chamado concluído — sem permissão para editar o atendimento' })
+  }
   const b = req.body ?? {}
   const data: any = {}
   const texto = (v: any) => (v ? String(v).trim().slice(0, 8000) || null : null)
@@ -1288,7 +1307,12 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
     return reply.code(400).send({ error: 'chamado concluído precisa manter a solução preenchida' })
   }
   if ('visitas' in b) {
-    const v = cleanVisitas(b.visitas, parseJsonArray(before.visitas), u)
+    // Quem pode aparecer como autor de uma ida: o responsável e quem está junto no chamado.
+    const equipe = [
+      ...(before.assigneeId ? [{ id: before.assigneeId, name: before.assigneeName ?? '—' }] : []),
+      ...shared(before),
+    ]
+    const v = cleanVisitas(b.visitas, parseJsonArray(before.visitas), u, equipe)
     if (typeof v === 'string') return reply.code(400).send({ error: v })
     data.visitas = JSON.stringify(v)
   }

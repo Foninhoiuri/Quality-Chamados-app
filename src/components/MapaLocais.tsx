@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { LocateFixed, Loader2 } from 'lucide-react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -110,8 +111,12 @@ function AjustarTamanho() {
 function Enquadrar({ pontos, eu }: { pontos: [number, number][]; eu: [number, number] | null }) {
   const map = useMap()
   const jaEnquadrou = useRef(false)
+  const jaUsouMinhaPosicao = useRef(false)
 
   useEffect(() => {
+    // A localização chega depois do mapa montar. Quando chega, vale um reenquadramento:
+    // antes disso o mapa tinha se ajustado só pelos pinos (ou pelo país inteiro).
+    if (eu && !jaUsouMinhaPosicao.current) jaEnquadrou.current = false
     if (jaEnquadrou.current) return
 
     const aplicar = () => {
@@ -119,9 +124,10 @@ function Enquadrar({ pontos, eu }: { pontos: [number, number][]; eu: [number, nu
       // enquadramento no vazio, e ele nunca mais seria refeito.
       if (map.getSize().x === 0) return false
       if (eu) {
+        jaUsouMinhaPosicao.current = true
         const perto = pontos.filter((p) => distanciaKm(eu, p) <= PERTO_KM)
         if (perto.length) map.fitBounds(L.latLngBounds([eu, ...perto]), { padding: [56, 56], maxZoom: 16 })
-        else map.setView(eu, 12)
+        else map.setView(eu, 13)
         return true
       }
       if (pontos.length === 0) return false
@@ -231,14 +237,32 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
   const pontos = useMemo(() => comPino.map((l) => [l.lat as number, l.lng as number] as [number, number]), [comPino])
   // Onde a pessoa está: o mapa abre na região dela, com os locais perto à volta.
   const [eu, setEu] = useState<[number, number] | null>(null)
-  useEffect(() => {
-    if (!navigator.geolocation) return
+  const [buscandoLocal, setBuscandoLocal] = useState(false)
+  const [erroLocal, setErroLocal] = useState<string | null>(null)
+  const [mapaRef, setMapaRef] = useState<L.Map | null>(null)
+  // Sem nenhum tile carregado, o mapa é um retângulo azul e ninguém sabe por quê.
+  const [semTiles, setSemTiles] = useState(false)
+
+  const pedirLocalizacao = (centralizar: boolean) => {
+    if (!navigator.geolocation) return setErroLocal('Este navegador não informa a localização')
+    setBuscandoLocal(true)
+    setErroLocal(null)
     navigator.geolocation.getCurrentPosition(
-      (p) => setEu([p.coords.latitude, p.coords.longitude]),
-      () => { /* recusou ou falhou: fica o enquadramento pelos pontos */ },
-      { timeout: 8000, maximumAge: 600000 },
+      (p) => {
+        const pos: [number, number] = [p.coords.latitude, p.coords.longitude]
+        setEu(pos)
+        setBuscandoLocal(false)
+        if (centralizar && mapaRef) mapaRef.flyTo(pos, 15, { duration: 0.6 })
+      },
+      (e) => {
+        setBuscandoLocal(false)
+        setErroLocal(e.code === e.PERMISSION_DENIED ? 'Localização bloqueada nas permissões do site' : 'Não foi possível obter sua localização')
+      },
+      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: centralizar },
     )
-  }, [])
+  }
+
+  useEffect(() => { pedirLocalizacao(false) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
 
   // Base: OpenStreetMap, que é livre. O tema escuro é feito no CSS, invertendo e
   // dessaturando a base — nada de serviço de mapa pago.
@@ -251,16 +275,43 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
           Nenhum local no mapa ainda. Preencha o CEP e o endereço do local — ou use “Localizar no mapa” no cartão dele.
         </div>
       )}
+      {/* Centralizar em mim: o mapa abre onde dá, mas achar-se nele é um toque. */}
+      <button
+        type="button"
+        onClick={() => pedirLocalizacao(true)}
+        disabled={buscandoLocal}
+        title={erroLocal ?? 'Centralizar em mim'}
+        aria-label="Centralizar em mim"
+        className="absolute right-3 top-3 z-[500] flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 bg-slate-900/95 text-slate-200 shadow-lg hover:border-red-700 hover:text-red-300 disabled:opacity-60"
+      >
+        {buscandoLocal ? <Loader2 size={17} className="animate-spin" /> : <LocateFixed size={17} />}
+      </button>
+      {erroLocal && (
+        <div className="absolute inset-x-14 top-3 z-[500] rounded-lg border border-amber-500/30 bg-slate-900/95 px-2 py-1.5 text-center text-[11px] text-amber-300 shadow-lg">
+          {erroLocal}
+        </div>
+      )}
+      {semTiles && (
+        <div className="absolute inset-x-3 bottom-10 z-[500] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2 text-center text-[11px] text-slate-300 shadow-lg">
+          O mapa não carregou — o servidor de mapas do OpenStreetMap não respondeu. Verifique a conexão e recarregue.
+        </div>
+      )}
+
       <MapContainer
         center={eu ?? pontos[0] ?? BRASIL}
         zoom={eu ? 13 : pontos.length ? 13 : 4}
         scrollWheelZoom
+        ref={setMapaRef}
         className="h-full min-h-[320px] w-full overflow-hidden rounded-xl border border-slate-800"
         style={{ background: escuro ? '#0b1120' : '#e2e8f0' }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          eventHandlers={{
+            load: () => setSemTiles(false),
+            tileerror: () => setSemTiles(true),
+          }}
           className={escuro
             ? '[filter:invert(1)_hue-rotate(185deg)_brightness(1.02)_contrast(.86)_saturate(.45)]'
             : '[filter:saturate(.7)_contrast(.95)]'}

@@ -57,7 +57,10 @@ export interface TecnicoRef {
   avatar?: string | null
 }
 
-/** Ida ao local. Com início e saída o servidor calcula `minutos`; sem eles, vale o informado. */
+/**
+ * Ida ao local. Com início e saída o servidor calcula `minutos`; sem eles, vale o
+ * informado. Com início e SEM saída, é uma ida em andamento: vale zero até fechar.
+ */
 export interface Visita {
   id?: string
   data: string // YYYY-MM-DD

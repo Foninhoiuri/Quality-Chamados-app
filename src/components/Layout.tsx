@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2 } from 'lucide-react'
 import { cn, iniciais } from '@/lib/utils'
@@ -87,11 +87,10 @@ function ContaCard({ aberto, onAbrir, compacto, comoBotaoDaBarra }: {
   const naoLidas = notifications.filter((n) => !n.read).length
   const [verNotificacoes, setVerNotificacoes] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-  useClickFora(box, aberto && !comoBotaoDaBarra, () => onAbrir(false))
+  const fechar = useCallback(() => onAbrir(false), [onAbrir])
+  useClickFora(box, aberto && !comoBotaoDaBarra, fechar)
 
   useEffect(() => { if (!aberto) setVerNotificacoes(false) }, [aberto])
-
-  const fechar = () => onAbrir(false)
 
   const conteudo = (
     <>

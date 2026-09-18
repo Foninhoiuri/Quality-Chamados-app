@@ -1,0 +1,92 @@
+# Mudanças — Quality Chamados
+
+O que foi entrando no app, da mais recente para a mais antiga. Serve para acompanhar o que
+mudou sem ler o histórico do git, e para saber o que precisa ser conferido depois de subir.
+
+---
+
+## 18/09/2026 — correções pedidas na revisão
+
+### Senhas de usuário (era o mais grave)
+
+- **Senha temporária que não funcionava.** No servidor, `String(b.password ?? temp)` deixava
+  passar string vazia: o usuário nascia com hash de senha vazia e a senha mostrada na tela
+  nunca entrava. Agora só vira senha o que tem conteúdo de verdade.
+- A senha temporária virou **ditável**: sem `0/O`, `1/I/l` e sem os sinais do base64url, no
+  formato `ABCD-2345`.
+- **Dá para definir a senha ao criar o usuário** (o campo existia só na edição). Em branco,
+  o sistema gera a temporária como antes.
+- **"Pedir que a pessoa crie a própria senha no primeiro acesso" virou caixa de seleção.**
+  Desmarcada, a senha digitada já é a definitiva — era o passo a mais que incomodava.
+- **Login recusado vai para a auditoria com o motivo** (e-mail não cadastrado, senha
+  incorreta, usuário inativo). A senha nunca é registrada; quem tenta continua vendo a
+  mesma mensagem genérica.
+
+### Chamados
+
+- **Menu de status saiu do formulário.** Quem move o chamado é o botão de etapa.
+- **Data e hora saíram da abertura.** O chamado nasce agora; ajustar a data é na edição,
+  para quem tem `ajustar_datas_chamado`.
+- **Arquivar acabou.** Concluído fica na tela de Concluídos e pronto — sem "arquivar",
+  sem "devolver aos concluídos", sem etiqueta de arquivado. O histórico antigo continua na
+  mesma lista, atrás da permissão `ver_arquivados`.
+- **Nova permissão `editar_concluidos`** (só Administrador). Sem ela, chamado concluído é
+  registro fechado: não dá para editar dados nem atendimento. Reabrir continua sendo
+  assunto de `reabrir_chamados`.
+- **Nos concluídos, os dados viraram a mesma linha resumida** do chamado aberto: local ·
+  solicitante · quem abriu · responsável.
+
+### Atendimento técnico
+
+- **"Cheguei agora" salva na hora** e o botão vira **"Terminei agora"**, que marca a saída e
+  fecha a conta do tempo. Sem formulário no meio; corrigir depois continua possível.
+- Ida em andamento aparece como **"no local agora"** na lista de idas.
+- Com o chamado compartilhado, cada ida tem **"quem foi nesta ida"**. Uma ida pertence a um
+  técnico só — o total de horas soma as idas e **não duplica** por causa do compartilhamento.
+
+### Locais e mapa
+
+- **Botão de centralizar em mim** no mapa, e o mapa reenquadra quando a localização chega
+  (antes ele ficava no zoom inicial mesmo depois de autorizar).
+- **Aviso quando o mapa não carrega** — antes ficava um retângulo azul sem explicação.
+- **Excluir local**: os botões do cartão ganharam alvo maior e pararam de repassar o clique
+  para o cartão (o dedo acertava o cartão, não o botão), e agora há um **"Excluir este
+  local" dentro do formulário** do local.
+
+### Outros
+
+- **Menu do avatar fecha ao clicar fora.** O callback era recriado a cada render e o efeito
+  remontava; agora é estável e o clique é lido pelo caminho do evento.
+- **Movimentação recente (dashboard)**: a etiqueta de status usa a cor da fase — vermelho
+  para fila, azul para em andamento, verde para concluído.
+
+---
+
+## 17/09/2026 — faxina visual
+
+- Tema claro com contraste corrigido: superfícies brancas sobre fundo cinza, cinzas de texto
+  mais escuros, vermelho/verde/amarelo fechados para se lerem sobre branco.
+- Barra superior removida; o avatar virou o único menu (notificações, telas secundárias,
+  versão e sair), no rodapé da lateral e na barra do celular.
+- Pontinho de novidade por área na navegação (`GET /novidades`), atualizando sozinho.
+- Modal do chamado: código pequeno em cima, título, estado logo abaixo, dados em uma linha,
+  descrição maior e "Fechar" como botão escrito — o "x" do canto saiu de todos os modais.
+- Atendimento técnico em modal por cima, com "Salvar" e "Salvar e concluir" no rodapé fixo.
+- Mapa dos locais com plaquinhas (nome + chamados), agrupamento de pinos próximos e base do
+  OpenStreetMap — sem serviço pago.
+- Dashboard comparativo (7/15/30 dias, variação vs. período anterior) e anel por situação.
+- Celular: modais em folha de rodapé, filtros recolhidos, abas por coluna, matriz de
+  permissões por perfil, relatório em acordeão e tabelas viram cartões.
+
+---
+
+## 17/09/2026 — três telas por fase
+
+- Chamados divididos em **Abertos**, **Em andamento** e **Concluídos**, com colunas
+  configuráveis só no meio do caminho.
+- Uma ação por cartão, com o nome do que vai acontecer; a tela segue o chamado.
+- Cancelar chamado (fica só na auditoria), compartilhar com outros técnicos, serviço já
+  realizado e datas retroativas com permissão própria.
+- Gestor passa a acompanhar: no módulo Chamados tem o alcance do Operador.
+- Registros com título, descrição opcional, categorias configuráveis e exportação própria.
+- Relatório mensal em PDF; locais com CEP, sugestões de endereço e pino ajustável.

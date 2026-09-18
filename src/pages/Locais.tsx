@@ -172,9 +172,29 @@ export default function Locais() {
                   <div className="truncate font-medium text-slate-100">{l.name}</div>
                 </div>
                 {(canManage || canDelete) && (
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    {canManage && <button onClick={() => openEdit(l)} className="rounded p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Editar"><Pencil size={14} /></button>}
-                    {canDelete && <button onClick={() => setDeleting(l)} className="rounded p-1.5 text-slate-500 hover:bg-red-500/10 hover:text-red-400" title="Excluir"><Trash2 size={14} /></button>}
+                  // O cartão inteiro é clicável (seleciona no mapa): estes botões precisam
+                  // de alvo grande e de parar o clique, senão o dedo acerta o cartão.
+                  <div className="flex shrink-0 items-center gap-1">
+                    {canManage && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEdit(l) }}
+                        className="rounded-lg border border-slate-800 p-2 text-slate-400 hover:border-slate-700 hover:bg-slate-800 hover:text-slate-100"
+                        title="Editar local"
+                        aria-label={`Editar ${l.name}`}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleting(l) }}
+                        className="rounded-lg border border-slate-800 p-2 text-slate-400 hover:border-red-800 hover:bg-red-500/10 hover:text-red-300"
+                        title="Excluir local"
+                        aria-label={`Excluir ${l.name}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -189,7 +209,7 @@ export default function Locais() {
                 {l.cep && <div className="font-mono text-[11px] text-slate-500">CEP {l.cep}</div>}
                 {l.note && <div className="whitespace-pre-wrap text-slate-500">{l.note}</div>}
                 {mapsUrl(l) && (
-                  <a href={mapsUrl(l)!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-red-300">
+                  <a href={mapsUrl(l)!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-red-300">
                     <MapPin size={11} /> ver no mapa
                   </a>
                 )}
@@ -234,6 +254,14 @@ export default function Locais() {
         footer={<><Button variant="subtle" onClick={() => setEditing(null)}>Cancelar</Button><Button onClick={save} disabled={saving}>Salvar</Button></>}
       >
         <FormularioLocal form={form} onChange={setForm} onAbrirMapa={() => setMarcando(true)} />
+        {canDelete && editing !== 'new' && typeof editing === 'object' && editing && (
+          <button
+            onClick={() => { const alvo = editing; setEditing(null); setDeleting(alvo) }}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-800 px-3 py-2 text-[12px] text-slate-400 hover:border-red-800 hover:bg-red-500/10 hover:text-red-300"
+          >
+            <Trash2 size={14} /> Excluir este local
+          </button>
+        )}
       </Modal>
 
       {marcandoLocal && (

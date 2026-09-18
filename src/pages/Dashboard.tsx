@@ -166,6 +166,14 @@ export default function Dashboard() {
 
   const statuses = parseStatuses(settings)
   const statusLabel = (key: string) => statuses.find((s) => s.key === key)?.label ?? key
+  /** A etiqueta usa a cor da fase: fila em vermelho, atendimento em azul, concluído em verde. */
+  const statusFase = (key: string) => statuses.find((s) => s.key === key)?.fase ?? 'andamento'
+  const corDoBadge = (key: string) => {
+    const f = statusFase(key)
+    if (f === 'aberto') return 'bg-red-500/10 text-red-300'
+    if (f === 'concluido') return 'bg-emerald-500/10 text-emerald-300'
+    return 'bg-sky-500/10 text-sky-300'
+  }
   const recentes = [...tickets].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 6)
   const primeiroNome = me?.name.split(' ')[0] ?? ''
   const c = ov?.comparativo
@@ -345,7 +353,7 @@ export default function Dashboard() {
                   <div className="truncate text-sm text-slate-200"><span className="font-mono text-[11px] text-slate-500">{t.code}</span> {t.title}</div>
                   <div className="truncate text-[11px] text-slate-500">{tempoAtras(t.updatedAt)}{t.assigneeName ? ` · ${t.assigneeName}` : ' · na fila'}{t.localName ? ` · ${t.localName}` : ''}</div>
                 </div>
-                <span className="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">{statusLabel(t.status)}</span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${corDoBadge(t.status)}`}>{statusLabel(t.status)}</span>
               </button>
             ))}
             {recentes.length === 0 && <div className="px-1 py-8 text-center text-sm text-slate-500">Nenhum chamado ainda.</div>}

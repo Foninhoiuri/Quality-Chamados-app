@@ -89,8 +89,6 @@ interface AppState {
   updateTicket: (id: string, patch: Partial<Ticket>) => Promise<void>
   acceptTicket: (id: string) => Promise<void>
   releaseTicket: (id: string) => Promise<void>
-  archiveTicket: (id: string) => Promise<void>
-  unarchiveTicket: (id: string) => Promise<void>
   cancelTicket: (id: string, motivo?: string) => Promise<void>
   shareTicket: (id: string, userIds: string[]) => Promise<void>
   removeTicket: (id: string) => Promise<void>
@@ -277,14 +275,6 @@ export const useStore = create<AppState>()((set, get) => ({
   },
   releaseTicket: async (id) => {
     await api.releaseTicket(id)
-    await get().refreshTickets()
-  },
-  archiveTicket: async (id) => {
-    await api.archiveTicket(id)
-    await get().refreshTickets()
-  },
-  unarchiveTicket: async (id) => {
-    await api.unarchiveTicket(id)
     await get().refreshTickets()
   },
   cancelTicket: async (id, motivo) => {

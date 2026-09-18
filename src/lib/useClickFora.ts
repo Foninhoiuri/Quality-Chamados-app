@@ -12,7 +12,12 @@ export function useClickFora(ref: RefObject<HTMLElement | null>, ativo: boolean,
     if (!ativo) return
     const onDown = (e: MouseEvent | TouchEvent) => {
       const alvo = e.target as Node | null
-      if (alvo && ref.current && !ref.current.contains(alvo)) fechar()
+      if (!alvo || !ref.current) return
+      // `composedPath` pega o alvo real mesmo quando o clique nasce dentro de um ícone
+      // SVG ou de um portal do próprio menu; `contains` sozinho já deixou menu preso.
+      const caminho = typeof (e as any).composedPath === 'function' ? ((e as any).composedPath() as Node[]) : []
+      if (caminho.length ? caminho.includes(ref.current) : ref.current.contains(alvo)) return
+      fechar()
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') fechar()
