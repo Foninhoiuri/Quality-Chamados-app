@@ -285,12 +285,6 @@ function ConteudoConcluido({ t, podeAbrir, onDetail }: {
 }) {
   return (
   <div className="space-y-3 border-t border-slate-800 px-3 py-3 text-[13px]">
-    {t.description && (
-      <div>
-        <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">O que aconteceu</div>
-        <p className="whitespace-pre-wrap text-slate-300">{t.description}</p>
-      </div>
-    )}
     {/* Mesma linha do chamado aberto: local · solicitante · quem abriu · responsável,
         separados por ponto. Quatro caixinhas para quatro palavras era desperdício de tela. */}
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-slate-400">
@@ -313,6 +307,13 @@ function ConteudoConcluido({ t, podeAbrir, onDetail }: {
         </>
       )}
     </div>
+
+    {t.description && (
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">O que aconteceu</div>
+        <p className="whitespace-pre-wrap text-slate-300">{t.description}</p>
+      </div>
+    )}
   
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
       <div className="mb-1.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-200"><Wrench size={13} className="text-red-400" /> Atendimento técnico</div>
