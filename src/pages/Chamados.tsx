@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Pencil, Trash2, MessageSquare, User as UserIcon, Undo2, Building2, Clock, Archive, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, SlidersHorizontal } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, User as UserIcon, Undo2, Building2, Clock, Archive, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MoveRight } from 'lucide-react'
 import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
@@ -98,6 +98,8 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const mobile = useMobile()
   // No celular o quadro não cabe lado a lado: cada coluna vira uma aba.
   const [colunaAtiva, setColunaAtiva] = useState('')
+  // No celular não se arrasta cartão: mover é por uma listinha de colunas.
+  const [movendo, setMovendo] = useState<Ticket | null>(null)
   const [form, setForm] = useState<TForm>(emptyForm('aberto'))
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState<TicketStatus | null>(null)
@@ -331,6 +333,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             onEdit={() => openEdit(t)}
             onDelete={() => setDeleting(t)}
             onCancel={() => setCanceling(t)}
+            onMover={fase === 'andamento' && canManage && colunas.length > 1 ? () => setMovendo(t) : undefined}
             onDetail={() => openDetail(t)}
             onFinish={canFinish && doneKeys.has(t.status) ? () => finalizar(t) : undefined}
           />
@@ -635,6 +638,39 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         )}
       </Modal>
 
+      {movendo && (
+        <Modal
+          open
+          onClose={() => setMovendo(null)}
+          tituloTexto={`Mover ${movendo.code}`}
+          title={
+            <div className="min-w-0">
+              <div className="font-mono text-[11px] tracking-wide text-red-400/80">{movendo.code}</div>
+              <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">{movendo.title}</h2>
+            </div>
+          }
+        >
+          <div className="space-y-1.5">
+            <p className="mb-2 text-[12px] text-slate-500">Para qual coluna de Em andamento?</p>
+            {colunas.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => { moveTo(movendo.id, c.key); setMovendo(null) }}
+                disabled={c.key === movendo.status}
+                className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-3 text-left text-sm ${
+                  c.key === movendo.status
+                    ? 'border-slate-800 bg-slate-900/40 text-slate-500'
+                    : 'border-slate-800 text-slate-200 hover:border-red-700 hover:bg-red-500/5'
+                }`}
+              >
+                {c.label}
+                {c.key === movendo.status ? <span className="text-[11px]">está aqui</span> : <ArrowRight size={15} className="text-slate-600" />}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {atendendo && (
         <ModalAtendimento
           t={tickets.find((x) => x.id === atendendo.id) ?? atendendo}
@@ -758,7 +794,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onDetail, onFinish }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onDetail, onFinish }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
@@ -769,6 +805,8 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
   onEdit: () => void
   onDelete: () => void
   onCancel: () => void
+  /** Mover para outra coluna sem arrastar (celular). */
+  onMover?: () => void
   onDetail: () => void
   onFinish?: () => void
 }) {
@@ -800,6 +838,11 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
         </div>
         {(canManage || canDelete || canCancel) && (
           <div className="flex shrink-0 items-center gap-0.5">
+            {onMover && (
+              <button onClick={stop(onMover)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200 md:hidden" title="Mover para outra coluna">
+                <MoveRight size={14} />
+              </button>
+            )}
             {canManage && <button onClick={stop(onEdit)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Editar"><Pencil size={13} /></button>}
             {canCancel && <button onClick={stop(onCancel)} className="rounded p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-400" title="Cancelar chamado"><Ban size={13} /></button>}
             {canDelete && <button onClick={stop(onDelete)} className="rounded p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-400" title="Excluir"><Trash2 size={13} /></button>}

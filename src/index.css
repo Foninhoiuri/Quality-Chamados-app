@@ -45,6 +45,13 @@ label:has(> input[type='radio']),
   --header-h: calc(3.5rem + env(safe-area-inset-top, 0px));
   --chart-grid: #27272a;
   --chart-tick: #a1a1aa;
+  /* Cores das séries dos gráficos — trocam junto com o tema. */
+  --serie-abertos: #ef4444;
+  --serie-concluidos: #34d399;
+  --serie-andamento-1: #38bdf8;
+  --serie-andamento-2: #818cf8;
+  --serie-andamento-3: #22d3ee;
+  --serie-andamento-4: #a78bfa;
   --tooltip-bg: #18181b;
   --tooltip-border: #27272a;
 }
@@ -72,14 +79,28 @@ label:has(> input[type='radio']),
   --color-slate-900: #ffffff;
   --color-slate-950: #ffffff;
 
-  /* O vermelho da marca precisa escurecer no claro: #f87171 sobre branco não se lê. */
+  /* Cores de estado sobre branco: os tons claros do escuro somem aqui. O vermelho da
+     marca também fecha um pouco; verde e amarelo precisam fechar bastante. */
   --color-red-300: #b91c1c;
   --color-red-400: #dc2626;
   --color-sky-300: #b91c1c;
   --color-sky-400: #dc2626;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-emerald-500: #059669;
+  --color-amber-200: #92400e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #b45309;
 
   --chart-grid: #dde1e7;
   --chart-tick: #5b616b;
+  /* No claro as séries fecham o tom: verde e azul claros sumiam sobre branco. */
+  --serie-abertos: #dc2626;
+  --serie-concluidos: #059669;
+  --serie-andamento-1: #0369a1;
+  --serie-andamento-2: #4338ca;
+  --serie-andamento-3: #0e7490;
+  --serie-andamento-4: #6d28d9;
   --tooltip-bg: #ffffff;
   --tooltip-border: #c7ccd4;
 }

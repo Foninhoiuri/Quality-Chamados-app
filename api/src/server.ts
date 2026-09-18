@@ -388,6 +388,17 @@ const shapeRole = (r: any) => ({ id: r.id, name: r.name, color: r.color, system:
 const shapePermission = (p: any) => ({ id: p.id, label: p.label, module: p.module, system: p.system })
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Senha temporária feita para ser DITADA: sem 0/O, 1/I/l e sem os sinais do base64url,
+ * que viravam erro de digitação na hora de repassar ("a senha não funciona").
+ */
+const ALFABETO_SENHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+function senhaTemporaria(): string {
+  const bytes = crypto.randomBytes(8)
+  const letras = [...bytes].map((b) => ALFABETO_SENHA[b % ALFABETO_SENHA.length])
+  return `${letras.slice(0, 4).join('')}-${letras.slice(4, 8).join('')}`
+}
 const USER_STATUS = new Set(['ativo', 'inativo'])
 
 // ----------------------------- setup inicial -----------------------------
@@ -436,8 +447,18 @@ app.post('/auth/login', async (req: any, reply) => {
     loginFailsEmail.registrar(emailKey)
   }
   const user = await prisma.user.findUnique({ where: { email: emailKey }, include: { role: true } })
-  if (!user || !user.passwordHash || user.status !== 'ativo' || !bcrypt.compareSync(String(password ?? ''), user.passwordHash)) {
+  const motivo = !user ? 'e-mail não cadastrado'
+    : !user.passwordHash ? 'usuário sem senha definida'
+    : user.status !== 'ativo' ? 'usuário inativo'
+    : !bcrypt.compareSync(String(password ?? ''), user.passwordHash) ? 'senha incorreta'
+    : null
+  if (motivo) {
     registrarFalha()
+    // Fica na auditoria para dar para descobrir DEPOIS por que alguém não entrou — a
+    // pessoa que tentou vê sempre a mesma mensagem genérica. A senha nunca é registrada.
+    await prisma.auditLog.create({
+      data: { actorName: user?.name ?? emailKey, actorRole: user?.role?.name ?? '—', action: 'login', entity: 'sessao', target: emailKey, detail: `Login recusado: ${motivo}` },
+    }).catch(() => {})
     return reply.code(401).send({ error: 'credenciais inválidas' })
   }
   loginFailsIpEmail.limpar(key)
@@ -747,13 +768,19 @@ app.post('/users', async (req: any, reply) => {
   if (!b.name || !email) return reply.code(400).send({ error: 'nome e e-mail são obrigatórios' })
   if (!EMAIL_RE.test(email)) return reply.code(400).send({ error: 'e-mail inválido' })
   if (b.status && !USER_STATUS.has(b.status)) return reply.code(400).send({ error: 'status inválido' })
-  // Sem senha informada, gera uma temporária e devolve UMA vez para quem cadastrou.
-  const tempPassword = b.password ? null : crypto.randomBytes(6).toString('base64url')
+  // Senha escolhida por quem cadastra; em branco (ou só espaços), o servidor gera uma
+  // temporária e a devolve UMA vez. `?? ` não servia aqui: string vazia passava direto e
+  // o usuário nascia com hash de senha vazia — daí a temporária "não funcionar".
+  const escolhida = typeof b.password === 'string' && b.password.trim() ? String(b.password) : null
+  if (escolhida && escolhida.length < 6) return reply.code(400).send({ error: 'a senha precisa ter ao menos 6 caracteres' })
+  const tempPassword = escolhida ? null : senhaTemporaria()
+  // Quem cadastra decide se a pessoa troca no primeiro acesso; com senha gerada, sempre troca.
+  const trocarNoPrimeiroAcesso = tempPassword ? true : b.mustChangePassword !== false
   const created = await prisma.user.create({
     data: {
       name: String(b.name).trim(), email, roleId: b.roleId ?? 'role-operador', scope: b.scope || 'global',
-      status: b.status ?? 'ativo', passwordHash: bcrypt.hashSync(String(b.password ?? tempPassword), 10),
-      mustChangePassword: true, phone: b.phone ?? null,
+      status: b.status ?? 'ativo', passwordHash: bcrypt.hashSync(escolhida ?? (tempPassword as string), 10),
+      mustChangePassword: trocarNoPrimeiroAcesso, phone: b.phone ?? null,
       grants: { connect: (b.grants ?? []).map((id: string) => ({ id })) },
       denies: { connect: (b.denies ?? []).map((id: string) => ({ id })) },
     },
@@ -782,7 +809,13 @@ app.patch('/users/:id', async (req: any, reply) => {
   const data: any = {}
   for (const k of ['name', 'roleId', 'scope', 'status', 'phone']) if (k in b) data[k] = b[k]
   if (b.email != null) data.email = String(b.email).trim().toLowerCase()
-  if (b.password) { data.passwordHash = bcrypt.hashSync(String(b.password), 10); data.mustChangePassword = true }
+  if (typeof b.password === 'string' && b.password.trim()) {
+    if (b.password.length < 6) return reply.code(400).send({ error: 'a senha precisa ter ao menos 6 caracteres' })
+    data.passwordHash = bcrypt.hashSync(String(b.password), 10)
+    // Padrão: a pessoa cria a própria senha no primeiro acesso (quem redefine não deve
+    // ficar sabendo a senha final). Dá para desligar caso a caso.
+    data.mustChangePassword = b.mustChangePassword !== false
+  }
   if (Array.isArray(b.grants)) data.grants = { set: b.grants.map((id: string) => ({ id })) }
   if (Array.isArray(b.denies)) data.denies = { set: b.denies.map((id: string) => ({ id })) }
   const updated = await prisma.user.update({ where: { id: req.params.id }, data })

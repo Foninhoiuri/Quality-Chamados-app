@@ -7,22 +7,15 @@ que precisa mudar para sair do papel.
 
 ## Ajustes visuais que ficaram para a próxima rodada
 
-Pequenos, mas reais — anotados durante a faxina visual de setembro/2026:
+Anotados durante a faxina visual de setembro/2026 e **já construídos** desde então:
+agrupamento de pinos no mapa, ida ao local com a hora de agora em um toque, mover cartão
+entre colunas pelo celular e o tema claro com verde e amarelo legíveis.
 
-- **Pontinho de novidade no Dashboard e nas telas do menu da conta.** Hoje o ponto vermelho da
-  barra cobre Abertos, Em andamento, Concluídos e Registros (`GET /novidades`). Faltam
-  Relatórios, Locais, Usuários e Auditoria — exigiria o servidor devolver também o "mais
-  recente" dessas áreas, e um ponto no próprio avatar quando algo mudar lá dentro.
-- **Mapa: agrupar pinos próximos.** Com muitos locais no mesmo bairro as plaquinhas se
-  sobrepõem. O caminho é agrupar por proximidade no zoom baixo (um número no lugar de várias
-  plaquinhas) e abrir ao aproximar.
-- **Ida ao local pelo GPS.** O técnico já está no local quando registra a ida: dava para
-  oferecer "usar minha localização" e marcar a chegada/saída com um toque, em vez de digitar.
-- **Colunas de Em andamento arrastáveis no celular.** Hoje o arrastar entre colunas é só no
-  desktop; no celular se troca pelas abas e pelo botão de etapa. Um "mover para…" por toque
-  longo no cartão resolveria os casos fora da ordem.
-- **Tema claro nos gráficos.** As cores das séries (vermelho/verde) foram escolhidas no escuro;
-  no claro elas funcionam, mas ganhariam com um tom mais fechado.
+O que sobrou:
+
+- **Confirmar a ida pelo GPS.** Hoje "Cheguei agora" marca a hora. Dava para, com a
+  permissão de localização, comparar a posição com o pino do local e registrar junto que a
+  ida foi mesmo no endereço — útil quando o relatório de horas é cobrado pelo cliente.
 
 ---
 

@@ -28,6 +28,12 @@ function minutosDe(v: VisitaForm): number | null {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 60) : null
 }
 
+/** "Agora" no formato do campo de hora — o técnico está no local quando registra. */
+const horaAgora = () => {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 /** Tempos que aparecem quase sempre — um toque em vez de digitar. */
 const ATALHOS_TEMPO = [30, 60, 90, 120, 180, 240]
 const comoTexto = (min: number) => (min % 60 === 0 ? String(min / 60) : `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`)
@@ -295,13 +301,23 @@ export function ModalAtendimento({ t, podeConcluir, onFechar, onSalvo, onConclui
               )
             })}
           </div>
-          <button
-            type="button"
-            onClick={() => setForm({ ...form, visitas: [...form.visitas, { data: hojeIso(), inicio: '', fim: '', duracao: '', modo: 'tempo' }] })}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-700 py-2.5 text-[13px] font-medium text-slate-300 hover:border-red-700 hover:bg-red-500/5 hover:text-slate-100"
-          >
-            <Plus size={15} /> Registrar ida ao local
-          </button>
+          <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, visitas: [...form.visitas, { data: hojeIso(), inicio: '', fim: '', duracao: '', modo: 'tempo' }] })}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-700 py-2.5 text-[13px] font-medium text-slate-300 hover:border-red-700 hover:bg-red-500/5 hover:text-slate-100"
+            >
+              <Plus size={15} /> Registrar ida ao local
+            </button>
+            {/* Cheguei agora: abre a ida já com o dia e a hora certos. */}
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, visitas: [...form.visitas, { data: hojeIso(), inicio: horaAgora(), fim: '', duracao: '', modo: 'horario' }] })}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 py-2.5 text-[13px] font-medium text-slate-100 hover:bg-slate-700"
+            >
+              <Clock size={15} /> Cheguei agora
+            </button>
+          </div>
         </div>
 
         <div>

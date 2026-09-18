@@ -17,8 +17,19 @@ export const tooltipItem = { color: 'var(--color-slate-200)' }
 export const axisTick = { fill: 'var(--chart-tick)', fontSize: 11 }
 export const gridStroke = 'var(--chart-grid)'
 
-/** Abertos x concluídos — as duas séries usadas no dashboard e no relatório. */
+/**
+ * Abertos x concluídos — as duas séries usadas no dashboard e no relatório. As cores são
+ * variáveis: o verde e o azul do tema escuro desaparecem sobre o branco do tema claro.
+ */
 export const SERIE = {
-  abertos: { label: 'Abertos', color: '#ef4444' },
-  concluidos: { label: 'Concluídos', color: '#34d399' },
+  abertos: { label: 'Abertos', color: 'var(--serie-abertos)' },
+  concluidos: { label: 'Concluídos', color: 'var(--serie-concluidos)' },
 }
+
+/** Cores das colunas de "em andamento" no anel do dashboard. */
+export const CORES_ANDAMENTO = [
+  'var(--serie-andamento-1)',
+  'var(--serie-andamento-2)',
+  'var(--serie-andamento-3)',
+  'var(--serie-andamento-4)',
+]

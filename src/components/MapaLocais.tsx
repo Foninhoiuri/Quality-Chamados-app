@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useStore } from '@/lib/store'
@@ -56,6 +56,28 @@ function placa(l: Local, selecionado: boolean): L.DivIcon {
   })
 }
 
+/** Vários locais no mesmo ponto da tela: um círculo com quantos são. */
+function grupo(quantos: number, ativos: number): L.DivIcon {
+  const quente = ativos > 0
+  return L.divIcon({
+    className: 'placa-local',
+    html: `
+      <div style="
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        width:44px;height:44px;border-radius:50%;
+        background:${quente ? 'rgba(127,20,20,.95)' : 'rgba(30,41,59,.95)'};
+        border:2px solid ${quente ? 'rgba(248,113,113,.7)' : 'rgba(148,163,184,.4)'};
+        box-shadow:0 4px 12px rgba(0,0,0,.5);font:600 13px/1 system-ui,sans-serif;color:#e2e8f0">
+        <span>${quantos}</span>
+        <span style="font-size:9px;font-weight:500;color:${quente ? '#fca5a5' : '#94a3b8'};margin-top:2px">
+          ${quente ? `${ativos} ativo${ativos > 1 ? 's' : ''}` : 'locais'}
+        </span>
+      </div>`,
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+  })
+}
+
 /** O ponto "você está aqui". */
 const pinoEu = L.divIcon({
   className: 'pino-eu',
@@ -85,12 +107,11 @@ function AjustarTamanho() {
  * Enquadramento: com a localização em mãos, o mapa abre em volta de quem está usando, com
  * os locais próximos cabendo na tela. Sem ela, mostra todos os pontos.
  */
-function Enquadrar({ pontos, eu, foco }: { pontos: [number, number][]; eu: [number, number] | null; foco: [number, number] | null }) {
+function Enquadrar({ pontos, eu }: { pontos: [number, number][]; eu: [number, number] | null }) {
   const map = useMap()
   const jaEnquadrou = useRef(false)
 
   useEffect(() => {
-    if (foco) { map.flyTo(foco, Math.max(map.getZoom(), 16), { duration: 0.6 }); return }
     if (jaEnquadrou.current) return
 
     const aplicar = () => {
@@ -115,9 +136,89 @@ function Enquadrar({ pontos, eu, foco }: { pontos: [number, number][]; eu: [numb
     const aoRedimensionar = () => { if (aplicar()) { jaEnquadrou.current = true; map.off('resize', aoRedimensionar) } }
     map.on('resize', aoRedimensionar)
     return () => { map.off('resize', aoRedimensionar) }
-  }, [map, pontos, eu, foco])
+  }, [map, pontos, eu])
 
   return null
+}
+
+/** Distância em pixels abaixo da qual duas plaquinhas se atrapalham e viram um grupo. */
+const COLISAO_PX = 70
+
+/**
+ * Marcadores do mapa. Quando as plaquinhas se amontoam no zoom atual, elas viram um
+ * círculo com a quantidade — e ao clicar nele o mapa aproxima o suficiente para separá-las.
+ * É o único caso em que o mapa se mexe sozinho: agrupar e não deixar abrir seria um beco.
+ */
+function Marcadores({ locais, selecionado, onSelecionar, eu }: {
+  locais: Local[]
+  selecionado: string | null
+  onSelecionar: (id: string) => void
+  eu: [number, number] | null
+}) {
+  const map = useMap()
+  const [, redesenhar] = useState(0)
+  useMapEvents({
+    zoomend: () => redesenhar((n) => n + 1),
+    moveend: () => redesenhar((n) => n + 1),
+  })
+
+  const grupos = useMemo(() => {
+    const out: { pontos: Local[]; centro: [number, number] }[] = []
+    for (const l of locais) {
+      const p = map.latLngToLayerPoint([l.lat as number, l.lng as number])
+      const perto = out.find((g) => {
+        const c = map.latLngToLayerPoint(g.centro)
+        return Math.hypot(c.x - p.x, c.y - p.y) < COLISAO_PX
+      })
+      if (perto) perto.pontos.push(l)
+      else out.push({ pontos: [l], centro: [l.lat as number, l.lng as number] })
+    }
+    return out
+    // A posição na tela muda a cada zoom/arraste: o redesenho é a dependência de verdade.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locais, map, map.getZoom(), map.getCenter().lat, map.getCenter().lng])
+
+  return (
+    <>
+      {grupos.map((g) => {
+        if (g.pontos.length === 1) {
+          const l = g.pontos[0]
+          return (
+            <Marker
+              key={l.id}
+              position={[l.lat as number, l.lng as number]}
+              icon={placa(l, l.id === selecionado)}
+              eventHandlers={{ click: () => onSelecionar(l.id) }}
+            >
+              <Popup>
+                <div style={{ minWidth: 150 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{l.name}</div>
+                  {(l.address || l.city) && <div style={{ fontSize: 11, color: '#475569' }}>{[l.address, l.city].filter(Boolean).join(', ')}</div>}
+                  {l.cep && <div style={{ fontSize: 11, color: '#94a3b8' }}>CEP {l.cep}</div>}
+                  <div style={{ marginTop: 6, fontSize: 12 }}>
+                    <strong>{l.ticketsAtivos ?? 0}</strong> ativo(s) · <strong>{l.ticketsAndamento ?? 0}</strong> em andamento
+                    <div style={{ color: '#475569' }}>{l.ticketsTotal ?? 0} no total</div>
+                    {eu && <div style={{ color: '#475569' }}>a {distanciaKm(eu, [l.lat as number, l.lng as number]).toFixed(1)} km de você</div>}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          )
+        }
+        const ativos = g.pontos.reduce((s, l) => s + (l.ticketsAtivos ?? 0), 0)
+        return (
+          <Marker
+            key={g.pontos.map((l) => l.id).join('-')}
+            position={g.centro}
+            icon={grupo(g.pontos.length, ativos)}
+            eventHandlers={{
+              click: () => map.flyTo(g.centro, Math.min(map.getZoom() + 3, 17), { duration: 0.5 }),
+            }}
+          />
+        )
+      })}
+    </>
+  )
 }
 
 export function MapaLocais({ locais, selecionado, onSelecionar }: {
@@ -128,9 +229,6 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
   const tema = useStore((s) => s.theme)
   const comPino = useMemo(() => locais.filter((l) => l.lat != null && l.lng != null), [locais])
   const pontos = useMemo(() => comPino.map((l) => [l.lat as number, l.lng as number] as [number, number]), [comPino])
-  const alvo = comPino.find((l) => l.id === selecionado)
-  const foco: [number, number] | null = alvo ? [alvo.lat as number, alvo.lng as number] : null
-
   // Onde a pessoa está: o mapa abre na região dela, com os locais perto à volta.
   const [eu, setEu] = useState<[number, number] | null>(null)
   useEffect(() => {
@@ -168,7 +266,7 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
             : '[filter:saturate(.7)_contrast(.95)]'}
         />
         <AjustarTamanho />
-        <Enquadrar pontos={pontos} eu={eu} foco={foco} />
+        <Enquadrar pontos={pontos} eu={eu} />
 
         {eu && (
           <Marker position={eu} icon={pinoEu}>
@@ -176,27 +274,7 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
           </Marker>
         )}
 
-        {comPino.map((l) => (
-          <Marker
-            key={l.id}
-            position={[l.lat as number, l.lng as number]}
-            icon={placa(l, l.id === selecionado)}
-            eventHandlers={{ click: () => onSelecionar(l.id) }}
-          >
-            <Popup>
-              <div style={{ minWidth: 150 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{l.name}</div>
-                {(l.address || l.city) && <div style={{ fontSize: 11, color: '#475569' }}>{[l.address, l.city].filter(Boolean).join(', ')}</div>}
-                {l.cep && <div style={{ fontSize: 11, color: '#94a3b8' }}>CEP {l.cep}</div>}
-                <div style={{ marginTop: 6, fontSize: 12 }}>
-                  <strong>{l.ticketsAtivos ?? 0}</strong> ativo(s) · <strong>{l.ticketsAndamento ?? 0}</strong> em andamento
-                  <div style={{ color: '#475569' }}>{l.ticketsTotal ?? 0} no total</div>
-                  {eu && <div style={{ color: '#475569' }}>a {distanciaKm(eu, [l.lat as number, l.lng as number]).toFixed(1)} km de você</div>}
-                </div>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        <Marcadores locais={comPino} selecionado={selecionado} onSelecionar={onSelecionar} eu={eu} />
       </MapContainer>
     </div>
   )

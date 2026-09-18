@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { esperaDesde, parseStatuses } from '@/lib/tickets'
 import { cn, fmtMinutos, tempoAtras } from '@/lib/utils'
 import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
-import { SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
+import { CORES_ANDAMENTO, SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
 import type { Overview } from '@/lib/types'
 
 /**
@@ -85,10 +85,9 @@ function Agora({ itens }: { itens: { label: string; valor: number; to?: string; 
 
 /** Cor de cada situação: fila em vermelho, atendimento em azul, concluído em verde. */
 function corDaFase(fase: string, i: number) {
-  if (fase === 'aberto') return '#ef4444'
+  if (fase === 'aberto') return SERIE.abertos.color
   if (fase === 'concluido') return SERIE.concluidos.color
-  const azuis = ['#38bdf8', '#818cf8', '#22d3ee', '#a78bfa']
-  return azuis[i % azuis.length]
+  return CORES_ANDAMENTO[i % CORES_ANDAMENTO.length]
 }
 
 /** Anel com o total no meio — ocupa menos altura que a barra deitada e cabe no celular. */

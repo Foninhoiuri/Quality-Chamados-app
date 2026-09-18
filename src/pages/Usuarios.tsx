@@ -43,10 +43,12 @@ interface UserForm {
   scope: string
   status: 'ativo' | 'inativo'
   password: string
+  /** Pedir que a pessoa crie a própria senha no primeiro acesso. */
+  mustChangePassword: boolean
   grants: string[]
   denies: string[]
 }
-const emptyForm = (): UserForm => ({ name: '', email: '', roleId: 'role-operador', scope: 'global', status: 'ativo', password: '', grants: [], denies: [] })
+const emptyForm = (): UserForm => ({ name: '', email: '', roleId: 'role-operador', scope: 'global', status: 'ativo', password: '', mustChangePassword: true, grants: [], denies: [] })
 
 function fmtAcesso(v?: string | null) {
   if (!v) return '—'
@@ -92,7 +94,7 @@ export default function Usuarios() {
     return () => window.removeEventListener('shortcut:new', h)
   }, [canCreateUsers])
   function openEdit(u: User) {
-    setForm({ name: u.name, email: u.email, roleId: u.roleId, scope: u.scope, status: u.status, password: '', grants: [...u.grants], denies: [...u.denies] })
+    setForm({ name: u.name, email: u.email, roleId: u.roleId, scope: u.scope, status: u.status, password: '', mustChangePassword: true, grants: [...u.grants], denies: [...u.denies] })
     setEditing(u)
   }
 
@@ -100,8 +102,9 @@ export default function Usuarios() {
     if (!form.name.trim()) return showToast('Informe o nome do usuário')
     if (!form.email.trim()) return showToast('Informe o e-mail')
     const payload: Partial<UserForm> = { ...form, name: form.name.trim(), email: form.email.trim() }
-    // Criar: sem senha — o servidor gera uma temporária. Editar: só se preenchida.
-    if (editing === 'new' || !form.password) delete payload.password
+    // Senha só vai quando foi digitada: em branco, o servidor gera uma temporária (ao
+    // criar) ou mantém a atual (ao editar).
+    if (!form.password.trim()) { delete payload.password; delete payload.mustChangePassword }
     setSaving(true)
     try {
       if (editing === 'new') {
@@ -369,15 +372,30 @@ export default function Usuarios() {
           <Field label="Escopo (locais que o usuário enxerga)">
             <ScopePicker locais={locais} scope={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
           </Field>
-          {editing === 'new' ? (
-            <p className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-[11px] text-slate-400">
-              Uma senha temporária é gerada ao salvar. Repasse para a pessoa — ela escolhe a própria senha no primeiro acesso.
-            </p>
-          ) : (
-            <Field label="Redefinir senha" hint="em branco = manter a atual; ao definir, o usuário troca no próximo acesso">
-              <PasswordInput autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••" />
+          <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+            <Field
+              label={editing === 'new' ? 'Senha (opcional)' : 'Redefinir senha'}
+              hint={editing === 'new'
+                ? 'em branco, o sistema gera uma senha temporária e mostra na hora de salvar'
+                : 'em branco = manter a senha atual'}
+            >
+              <PasswordInput autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="mínimo 6 caracteres" />
             </Field>
-          )}
+            {form.password.trim() && (
+              <label className="flex items-start gap-2 text-[12px] text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={form.mustChangePassword}
+                  onChange={(e) => setForm({ ...form, mustChangePassword: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 accent-red-500"
+                />
+                <span>
+                  Pedir que a pessoa crie a própria senha no primeiro acesso
+                  <span className="block text-[11px] text-slate-500">Desmarque para que esta senha seja a definitiva — ela entra e já usa o app.</span>
+                </span>
+              </label>
+            )}
+          </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
             <div className="mb-2 text-xs font-medium text-slate-300">Permissões — herda do perfil; marque item a item para exceções</div>
             <div className="max-h-56 space-y-2 overflow-auto pr-1">
