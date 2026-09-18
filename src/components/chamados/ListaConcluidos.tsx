@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Building2, Clock, User as UserIcon, Check, Undo2, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, Archive, CalendarDays, Users } from 'lucide-react'
+import { Loader2, Building2, Clock, User as UserIcon, Check, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone } from 'lucide-react'
 import { Button, EmptyState, Modal, Select } from '@/components/ui'
 import { useMobile } from '@/lib/useMediaQuery'
 import { PhotoInput } from '@/components/PhotoInput'
@@ -265,15 +265,6 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, onDetai
   )
 }
 
-function Dado({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-slate-200">{children}</div>
-    </div>
-  )
-}
-
 function Bloco({ label, valor }: { label: string; valor?: string | null }) {
   if (!valor) return null
   return (
@@ -300,11 +291,27 @@ function ConteudoConcluido({ t, podeAbrir, onDetail }: {
         <p className="whitespace-pre-wrap text-slate-300">{t.description}</p>
       </div>
     )}
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-      <Dado label="Aberto por">{t.createdByName} · {fmtDataHora(t.createdAt)}</Dado>
-      <Dado label="Solicitante">{t.solicitante || '—'}</Dado>
-      <Dado label="Responsável">{t.assigneeName ?? '—'}</Dado>
-      {!!t.sharedWith?.length && <Dado label="Junto no chamado"><span className="inline-flex items-center gap-1"><Users size={12} /> {t.sharedWith.map((x) => x.name).join(', ')}</span></Dado>}
+    {/* Mesma linha do chamado aberto: local · solicitante · quem abriu · responsável,
+        separados por ponto. Quatro caixinhas para quatro palavras era desperdício de tela. */}
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-slate-400">
+      <span className="inline-flex items-center gap-1"><Building2 size={12} className="text-slate-500" />{t.localName ?? 'sem local'}</span>
+      <span className="text-slate-700">·</span>
+      <span className="inline-flex items-center gap-1"><Phone size={12} className="text-slate-500" />{t.solicitante || 'sem solicitante'}</span>
+      <span className="text-slate-700">·</span>
+      <span className="inline-flex items-center gap-1"><Clock size={12} className="text-slate-500" />{t.createdByName} · {fmtDataHora(t.createdAt)}</span>
+      {t.assigneeName && (
+        <>
+          <span className="text-slate-700">·</span>
+          <span className="inline-flex items-center gap-1 text-slate-300">
+            <UserIcon size={12} className="text-slate-500" />{t.assigneeName}
+            {!!t.sharedWith?.length && (
+              <span className="inline-flex items-center gap-0.5 text-slate-500" title={t.sharedWith.map((x) => x.name).join(', ')}>
+                <Users size={11} />+{t.sharedWith.length}
+              </span>
+            )}
+          </span>
+        </>
+      )}
     </div>
   
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
