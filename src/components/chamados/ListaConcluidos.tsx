@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Building2, Clock, User as UserIcon, Check, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone, Pencil } from 'lucide-react'
+import { Loader2, Building2, Clock, Check, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone, Pencil } from 'lucide-react'
 import { Button, EmptyState, Modal, Select } from '@/components/ui'
 import { useMobile } from '@/lib/useMediaQuery'
 import { PhotoInput } from '@/components/PhotoInput'
+import { AvatarPessoa } from '@/components/Pessoa'
+import { HistoricoAtendimento, textoDaIda } from '@/components/AtendimentoTecnico'
 import { useStore, useCurrentUser } from '@/lib/store'
 import { aplicarFiltros, type FiltroChamados } from './FiltrosChamados'
 import { api } from '@/lib/api'
@@ -207,7 +209,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
                               {t.localName && <span className="inline-flex items-center gap-1"><Building2 size={11} /> {t.localName}</span>}
                               {t.resolvedAt && <span className="inline-flex items-center gap-1 text-emerald-500/80"><Check size={11} /> {fmtDataHora(t.resolvedAt)}</span>}
-                              {t.assigneeName && <span className="inline-flex items-center gap-1"><UserIcon size={11} /> {t.assigneeName}</span>}
+                              {t.assigneeName && <span className="inline-flex items-center gap-1"><AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={15} /> {t.assigneeName}</span>}
                               {!!t.minutosTotais && <span className="inline-flex items-center gap-1"><Clock size={11} /> {fmtMinutos(t.minutosTotais)}</span>}
                               {!!t.commentCount && <span className="inline-flex items-center gap-1"><MessageSquare size={11} /> {t.commentCount}</span>}
                             </div>
@@ -237,6 +239,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
         <Modal
           open
           wide
+          telaCheia
           onClose={() => setAberto(null)}
           tituloTexto={`${abertoNoMobile.code} · ${abertoNoMobile.title}`}
           // Mesmo cabeçalho do chamado aberto: código pequeno em cima, título embaixo e o
@@ -292,7 +295,7 @@ function ConteudoConcluido({ t, podeEditar, onDetail }: {
         <>
           <span className="text-slate-700">·</span>
           <span className="inline-flex items-center gap-1 text-slate-300">
-            <UserIcon size={12} className="text-slate-500" />{t.assigneeName}
+            <AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={16} />{t.assigneeName}
             {!!t.sharedWith?.length && (
               <span className="inline-flex items-center gap-0.5 text-slate-500" title={t.sharedWith.map((x) => x.name).join(', ')}>
                 <Users size={11} />+{t.sharedWith.length}
@@ -362,6 +365,12 @@ function ConteudoConcluido({ t, podeEditar, onDetail }: {
       </div>
     )}
   
+    {!!t.historico?.length && (
+      <div className="border-t border-slate-800 pt-3">
+        <HistoricoAtendimento historico={t.historico} />
+      </div>
+    )}
+
     {/* Abrir leva ao chamado inteiro — de onde se edita, quando há permissão para isso. */}
     <div className="flex justify-end gap-2 border-t border-slate-800 pt-2">
       <Button size="sm" variant={podeEditar ? 'subtle' : 'primary'} onClick={() => onDetail()}>Abrir chamado</Button>

@@ -222,6 +222,132 @@ describe('horas trabalhadas', () => {
   })
 })
 
+describe('passagem do chamado', () => {
+  it('o técnico passa o chamado adiante, o novo assume e quem saiu continua acompanhando', async () => {
+    const t = await abrirChamado(operador, 'Motor do portão')
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/accept`, headers: comToken(tecnico) })
+
+    const passado = await app.inject({
+      method: 'POST',
+      url: `/tickets/${t.id}/transferir`,
+      headers: comToken(tecnico),
+      payload: { paraId: idTecnico2, motivo: 'preciso de escada maior' },
+    })
+    expect(passado.statusCode).toBe(200)
+    const corpo = passado.json()
+    expect(corpo.assigneeId, 'o novo responsável assume').toBe(idTecnico2)
+    expect(corpo.sharedWith.map((p: any) => p.id), 'quem passou continua acompanhando').toContain(idTecnico)
+
+    // A passagem entra na história do chamado, com o motivo.
+    const passagem = corpo.historico.find((h: any) => h.tipo === 'passagem')
+    expect(passagem, 'a passagem fica registrada').toBeTruthy()
+    expect(passagem.texto).toContain('escada maior')
+  })
+
+  it('quem não está no chamado não passa ele adiante', async () => {
+    const t = await abrirChamado(operador, 'Cerca elétrica')
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/accept`, headers: comToken(tecnico) })
+    const tentativa = await app.inject({
+      method: 'POST',
+      url: `/tickets/${t.id}/transferir`,
+      headers: comToken(tecnico2),
+      payload: { paraId: idTecnico2 },
+    })
+    expect(tentativa.statusCode).toBe(403)
+  })
+})
+
+describe('linha do tempo do atendimento', () => {
+  it('guarda o texto de cada técnico com autor, sem um apagar o do outro', async () => {
+    const t = await abrirChamado(operador, 'Interfone chiando')
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/accept`, headers: comToken(tecnico) })
+    await app.inject({ method: 'PATCH', url: `/tickets/${t.id}/atendimento`, headers: comToken(tecnico), payload: { analise: 'Fiação oxidada no poste' } })
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/transferir`, headers: comToken(tecnico), payload: { paraId: idTecnico2 } })
+    const depois = await app.inject({ method: 'PATCH', url: `/tickets/${t.id}/atendimento`, headers: comToken(tecnico2), payload: { solucao: 'Troquei o cabo e o espelho' } })
+
+    const historico = depois.json().historico
+    const analise = historico.find((h: any) => h.tipo === 'analise')
+    const solucao = historico.find((h: any) => h.tipo === 'solucao')
+    expect(analise.autorNome, 'a análise continua no nome de quem escreveu').toBe('Tec Um')
+    expect(solucao.autorNome).toBe('Tec Dois')
+    expect(analise.texto).toContain('oxidada')
+  })
+})
+
+describe('ida ao local que vira o dia', () => {
+  it('chegada e saída têm data própria, e a conta é entre os dois instantes', async () => {
+    const t = await abrirChamado(operador, 'Manutenção noturna')
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/accept`, headers: comToken(tecnico) })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tickets/${t.id}/atendimento`,
+      headers: comToken(tecnico),
+      payload: { visitas: [{ data: '2026-09-18', inicio: '23:00', fimData: '2026-09-19', fim: '01:30', minutos: 0 }] },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().minutosTotais, '23h → 1h30 do dia seguinte = 2h30').toBe(150)
+  })
+
+  it('saída antes da chegada é recusada', async () => {
+    const t = await abrirChamado(operador, 'Ida invertida')
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/accept`, headers: comToken(tecnico) })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tickets/${t.id}/atendimento`,
+      headers: comToken(tecnico),
+      payload: { visitas: [{ data: '2026-09-18', inicio: '10:00', fimData: '2026-09-17', fim: '09:00', minutos: 0 }] },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('técnico de apoio', () => {
+  it('marca a própria ida, mas não escreve o atendimento nem mexe na ida do outro', async () => {
+    const t = await abrirChamado(operador, 'Serviço a quatro mãos')
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/accept`, headers: comToken(tecnico) })
+    await app.inject({ method: 'POST', url: `/tickets/${t.id}/share`, headers: comToken(tecnico), payload: { userIds: [idTecnico2] } })
+
+    const hoje = new Date().toISOString().slice(0, 10)
+    const doResponsavel = await app.inject({
+      method: 'PATCH',
+      url: `/tickets/${t.id}/atendimento`,
+      headers: comToken(tecnico),
+      payload: { visitas: [{ data: hoje, minutos: 60, tecnicoId: idTecnico }] },
+    })
+    const idaDoOutro = doResponsavel.json().visitas[0]
+
+    // O apoio soma a ida dele, mantendo a do responsável intacta.
+    const doApoio = await app.inject({
+      method: 'PATCH',
+      url: `/tickets/${t.id}/atendimento`,
+      headers: comToken(tecnico2),
+      payload: { visitas: [idaDoOutro, { data: hoje, minutos: 45 }] },
+    })
+    expect(doApoio.statusCode, 'apoio registra a própria ida').toBe(200)
+    const minhas = doApoio.json().visitas.filter((v: any) => v.tecnicoId === idTecnico2)
+    expect(minhas).toHaveLength(1)
+    expect(minhas[0].minutos).toBe(45)
+
+    // Escrever a solução continua sendo do responsável.
+    const tentandoEscrever = await app.inject({
+      method: 'PATCH',
+      url: `/tickets/${t.id}/atendimento`,
+      headers: comToken(tecnico2),
+      payload: { solucao: 'texto do apoio' },
+    })
+    expect(tentandoEscrever.statusCode).toBe(403)
+
+    // E mexer na ida do responsável, também não.
+    const tentandoMexer = await app.inject({
+      method: 'PATCH',
+      url: `/tickets/${t.id}/atendimento`,
+      headers: comToken(tecnico2),
+      payload: { visitas: [{ ...idaDoOutro, minutos: 600 }] },
+    })
+    expect(tentandoMexer.statusCode).toBe(403)
+  })
+})
+
 describe('escopo e visibilidade', () => {
   it('operador não enxerga o histórico sem a permissão', async () => {
     const res = await app.inject({ method: 'GET', url: '/tickets?history=1', headers: comToken(operador) })

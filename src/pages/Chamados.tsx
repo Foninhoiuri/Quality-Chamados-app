@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Pencil, Trash2, MessageSquare, User as UserIcon, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MoveRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MoveRight, MessagesSquare, ArrowRightLeft, Navigation, Copy } from 'lucide-react'
 import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
 import { api, assetUrl } from '@/lib/api'
 import { esperaDesde, FASES, faseDoTicket, paraInputLocal, parseStatuses } from '@/lib/tickets'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
-import { TicketComments } from '@/components/TicketComments'
 import { PhotoInput } from '@/components/PhotoInput'
 import { AtendimentoTecnico, ModalAtendimento } from '@/components/AtendimentoTecnico'
+import { ChatChamado } from '@/components/chamados/ChatChamado'
 import { LocalSelect, mapsUrl } from '@/components/LocalSelect'
 import { CompartilharChamado } from '@/components/CompartilharChamado'
 import { ListaConcluidos } from '@/components/chamados/ListaConcluidos'
 import { aplicarFiltros, FiltrosChamados, FILTRO_VAZIO, type FiltroChamados } from '@/components/chamados/FiltrosChamados'
-import type { FaseChamado, Registro, Ticket, TicketStatus, TicketStatusDef } from '@/lib/types'
+import { AvatarPessoa } from '@/components/Pessoa'
+import type { FaseChamado, Registro, TecnicoRef, Ticket, TicketStatus, TicketStatusDef } from '@/lib/types'
 
 function slugify(s: string) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -61,7 +62,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const locais = useStore((s) => s.locais)
   const settings = useStore((s) => s.settings)
   const setSetting = useStore((s) => s.setSetting)
-  const { addTicket, updateTicket, removeTicket, cancelTicket, acceptTicket, releaseTicket, refreshTickets, showToast } = useStore()
+  const { addTicket, updateTicket, removeTicket, cancelTicket, acceptTicket, releaseTicket, transferirTicket, refreshTickets, showToast } = useStore()
   const me = useCurrentUser()
   const canManage = useCan('gerenciar_chamados')
   const canCreate = useCan('criar_chamados')
@@ -73,6 +74,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const canCorrigir = useCan('corrigir_atendimento')
   const canAttach = useCan('anexar_fotos_chamado')
   const canAtender = useCan('registrar_atendimento')
+  const canComentar = useCan('comentar_chamados')
   const canCancel = useCan('cancelar_chamados')
   const canShare = useCan('compartilhar_chamados')
   const canDatas = useCan('ajustar_datas_chamado')
@@ -96,6 +98,9 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const [motivo, setMotivo] = useState('')
   // O atendimento é preenchido num modal por cima do chamado (no celular, tela cheia).
   const [atendendo, setAtendendo] = useState<Ticket | null>(null)
+  // A conversa é janela própria: quem está em campo não rola o atendimento para ler recado.
+  const [conversando, setConversando] = useState<Ticket | null>(null)
+  const [passando, setPassando] = useState<Ticket | null>(null)
   const mobile = useMobile()
   // No celular o quadro não cabe lado a lado: cada coluna vira uma aba.
   const [colunaAtiva, setColunaAtiva] = useState('')
@@ -356,6 +361,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             onDelete={() => setDeleting(t)}
             onCancel={() => setCanceling(t)}
             onMover={fase === 'andamento' && canManage && colunas.length > 1 ? () => setMovendo(t) : undefined}
+            onChat={() => setConversando(t)}
             onDetail={() => openDetail(t)}
           />
         )
@@ -448,6 +454,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         onClose={() => setEditing(null)}
         title={editing === 'new' ? 'Novo chamado' : `Editar ${typeof editing === 'object' && editing ? editing.code : ''}`}
         wide
+        telaCheia
         onSubmit={save}
         footer={<><Button variant="subtle" onClick={() => setEditing(null)}>Cancelar</Button><Button onClick={save} disabled={saving}>{saving && <Loader2 size={14} className="animate-spin" />} Salvar</Button></>}
       >
@@ -619,6 +626,9 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           <>
             {/* Fechar (do próprio modal), o atendimento e a ação da etapa. O resto mora
                 dentro do modal — rodapé com seis botões não se usa com uma mão só. */}
+            <Button variant="subtle" onClick={() => setConversando(detail)}>
+              <MessagesSquare size={14} /> Conversa{detail.commentCount ? ` (${detail.commentCount})` : ''}
+            </Button>
             {canAtender && (ehMeu(detail) || canCorrigir) && detail.assigneeId && podeMexer(detail) && (
               <Button variant="subtle" onClick={() => setAtendendo(detail)}><Wrench size={14} /> Atendimento</Button>
             )}
@@ -642,6 +652,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             podeCompartilhar={canShare && !!detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir)}
             onEditarAtendimento={() => setAtendendo(detail)}
             secundarias={[
+              detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir || (detail.sharedWith ?? []).some((p) => p.id === me.id)) && { label: 'Passar para outro técnico', icone: <ArrowRightLeft size={13} />, onClick: () => setPassando(detail) },
               detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir) && { label: 'Devolver à fila', icone: <Undo2 size={13} />, onClick: () => devolver(detail) },
               canManage && podeMexer(detail) && { label: 'Editar dados', icone: <Pencil size={13} />, onClick: () => { const d = detail; closeDetail(); openEdit(d) } },
               podeCancelar(detail) && !podeExcluir(detail) && { label: 'Cancelar chamado', icone: <Ban size={13} />, perigo: true, onClick: () => setCanceling(detail) },
@@ -684,18 +695,37 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         </Modal>
       )}
 
+      {conversando && (
+        <ChatChamado
+          t={tickets.find((x) => x.id === conversando.id) ?? conversando}
+          podeComentar={canComentar || conversando.createdById === me.id || conversando.assigneeId === me.id || (conversando.sharedWith ?? []).some((p) => p.id === me.id)}
+          onFechar={() => setConversando(null)}
+          onMudou={recarregarDetalhe}
+        />
+      )}
+
+      {passando && (
+        <PassarChamado
+          t={passando}
+          onFechar={() => setPassando(null)}
+          onPassar={async (paraId, motivo) => {
+            try {
+              await transferirTicket(passando.id, paraId, motivo)
+              setPassando(null)
+              showToast(paraId ? 'Chamado passado — o técnico foi avisado' : `${passando.code} voltou para a fila`)
+              if (!paraId) irParaFase('aberto', passando.id)
+            } catch (e: any) {
+              showToast(e?.message ?? 'Não foi possível passar o chamado')
+            }
+          }}
+        />
+      )}
+
       {atendendo && (
         <ModalAtendimento
-          t={tickets.find((x) => x.id === atendendo.id) ?? atendendo}
-          podeConcluir={canFinish && !doneKeys.has(atendendo.status)}
+          t={tickets.find((x) => x.id === atendendo.id) ?? detail ?? atendendo}
           onFechar={() => setAtendendo(null)}
           onSalvo={recarregarDetalhe}
-          onConcluir={async () => {
-            const alvo = tickets.find((x) => x.id === atendendo.id) ?? atendendo
-            setAtendendo(null)
-            // A solução acabou de ser salva; concluir daqui não precisa reabrir o atendimento.
-            await concluir({ ...alvo, solucao: 'ok' })
-          }}
         />
       )}
 
@@ -732,6 +762,8 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   const local = useStore((s) => s.locais.find((l) => l.id === t.localId))
   const me = useCurrentUser()
   const mapa = mapsUrl(local ?? (t.localName ? { name: t.localName } : null))
+  const endereco = [local?.address, local?.city, local?.cep].filter(Boolean).join(', ')
+  const [copiou, setCopiou] = useState(false)
   // Está no chamado: abriu, pegou ou foi posto junto. Esses sempre podem falar no andamento.
   const noChamado = t.createdById === me?.id || t.assigneeId === me?.id || (t.sharedWith ?? []).some((s) => s.id === me?.id)
   const acoes = secundarias.filter(Boolean) as { label: string; icone: React.ReactNode; onClick: () => void; perigo?: boolean }[]
@@ -745,11 +777,6 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
         <span className="inline-flex items-center gap-1">
           <Building2 size={12} className="text-slate-500" />
           {t.localName ?? 'sem local'}
-          {mapa && (
-            <a href={mapa} target="_blank" rel="noreferrer" title={[local?.address, local?.city].filter(Boolean).join(', ')} className="ml-0.5 inline-flex items-center gap-0.5 text-slate-500 hover:text-red-300">
-              <MapPin size={11} /> mapa
-            </a>
-          )}
         </span>
         <span className="text-slate-700">·</span>
         <span className="inline-flex items-center gap-1"><Phone size={12} className="text-slate-500" />{t.solicitante || 'sem solicitante'}</span>
@@ -759,8 +786,8 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
           <>
             <span className="text-slate-700">·</span>
             <span className="inline-flex items-center gap-1 text-slate-300">
-              <UserIcon size={12} className="text-slate-500" />{t.assigneeName}
-              {!!t.sharedWith?.length && <span className="text-slate-500" title={t.sharedWith.map((x) => x.name).join(', ')}>+{t.sharedWith.length}</span>}
+              <AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={16} />{t.assigneeName}
+              {(t.sharedWith ?? []).map((p) => (<AvatarPessoa key={p.id} nome={p.name} id={p.id} size={16} className="-ml-1 ring-1 ring-slate-900" />))}
             </span>
           </>
         )}
@@ -771,6 +798,31 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
           </>
         )}
       </div>
+
+      {/* Chegar no local é a primeira coisa que o técnico faz depois de pegar o chamado:
+          o endereço fica à mão, para abrir no GPS ou copiar e mandar para alguém. */}
+      {endereco && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
+          <MapPin size={14} className="shrink-0 text-red-400" />
+          <span className="min-w-0 flex-1 text-[12.5px] text-slate-300">{endereco}</span>
+          <a
+            href={mapa ?? '#'}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-[12px] font-medium text-slate-100 hover:border-red-700 hover:bg-red-500/10"
+          >
+            <Navigation size={13} /> Abrir no GPS
+          </a>
+          <button
+            onClick={async () => {
+              try { await navigator.clipboard.writeText(endereco); setCopiou(true); setTimeout(() => setCopiou(false), 1500) } catch { /* sem área de transferência */ }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[12px] text-slate-300 hover:border-slate-700 hover:text-slate-100"
+          >
+            {copiou ? <CheckCircle2 size={13} className="text-emerald-400" /> : <Copy size={13} />} {copiou ? 'Copiado' : 'Copiar'}
+          </button>
+        </div>
+      )}
 
       {t.description && <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-200">{t.description}</p>}
 
@@ -783,11 +835,17 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
 
       {/* Atendimento só existe depois que alguém pega o chamado — na fila ele seria uma
           caixa vazia pedindo dados que ninguém pode preencher ainda. */}
-      {emAtendimento && <AtendimentoTecnico t={t} podeEditar={podeAtender} onEditar={onEditarAtendimento} onSalvo={onRefresh} />}
-      <div className="border-t border-slate-800 pt-3">
-        <TicketComments ticketId={t.id} podeComentar={noChamado} onCountChange={onRefresh} />
-      </div>
-
+      {emAtendimento && (
+        <AtendimentoTecnico
+          t={t}
+          podeEditar={podeAtender}
+          // Quem está junto no chamado também vai ao local: marca a própria ida, mesmo
+          // sem poder escrever o atendimento.
+          podeMarcarPonto={podeAtender || (t.sharedWith ?? []).some((p) => p.id === me?.id)}
+          onEditar={onEditarAtendimento}
+          onSalvo={onRefresh}
+        />
+      )}
       {acoes.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-slate-800 pt-3">
           {acoes.map((a) => (
@@ -807,7 +865,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onDetail }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onChat, onDetail }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
@@ -820,6 +878,8 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
   onCancel: () => void
   /** Mover para outra coluna sem arrastar (celular). */
   onMover?: () => void
+  /** Abre a conversa do chamado — sem precisar pegar o chamado nem abrir o detalhe. */
+  onChat: () => void
   onDetail: () => void
 }) {
   const allPhotos = [...(t.photos ?? []), ...(t.donePhotos ?? [])]
@@ -882,29 +942,41 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
         <span className="inline-flex min-w-0 items-center gap-1 truncate"><Clock size={10} /> {fmtDataHora(t.createdAt)} · {t.createdByName}</span>
         {t.assigneeName ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-slate-400">
-            <UserIcon size={11} /> {t.assigneeName}
-            {!!t.sharedWith?.length && <span className="inline-flex items-center gap-0.5 text-slate-500" title={`Junto: ${t.sharedWith.map((x) => x.name).join(', ')}`}><Users size={11} />+{t.sharedWith.length}</span>}
+            <AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={15} /> {t.assigneeName}
+            {(t.sharedWith ?? []).map((p) => (<AvatarPessoa key={p.id} nome={p.name} id={p.id} size={15} className="-ml-1 ring-1 ring-slate-900" />))}
           </span>
         ) : (
           <span className="shrink-0 text-amber-400/80">sem técnico</span>
         )}
       </div>
 
-      {/* Uma ação por cartão, com o nome do que vai acontecer — alvo grande, para o dedo. */}
-      {etapa && (
+      {/* Uma ação por cartão, com o nome do que vai acontecer — e a conversa ao lado, para
+          quem só precisa falar com quem está no chamado, sem pegar nada. */}
+      <div className="mt-2 flex items-stretch gap-1.5">
+        {etapa && (
+          <button
+            onClick={stop(etapa.acao)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-[12px] font-medium ${
+              etapa.icone === 'pegar'
+                ? 'border-emerald-800/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                : etapa.icone === 'concluir'
+                  ? 'border-red-800/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                  : 'border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-700'
+            }`}
+          >
+            {etapa.icone === 'pegar' ? <HandHelping size={14} /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />} {etapa.label}
+          </button>
+        )}
         <button
-          onClick={stop(etapa.acao)}
-          className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border py-2 text-[12px] font-medium ${
-            etapa.icone === 'pegar'
-              ? 'border-emerald-800/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-              : etapa.icone === 'concluir'
-                ? 'border-red-800/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
-                : 'border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-700'
-          }`}
+          onClick={stop(onChat)}
+          title="Conversa do chamado"
+          aria-label="Conversa do chamado"
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapa ? '' : 'flex-1'}`}
         >
-          {etapa.icone === 'pegar' ? <HandHelping size={14} /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />} {etapa.label}
+          <MessagesSquare size={14} />
+          {t.commentCount ? <span className="tabular-nums">{t.commentCount}</span> : !etapa && 'Conversa'}
         </button>
-      )}
+      </div>
 
     </div>
   )
@@ -992,6 +1064,103 @@ function StatusManager({ statuses, contagem, onClose, onSave }: {
           <Input value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} placeholder="Nova coluna (ex.: Aguardando peça)" className="flex-1" />
           <Button variant="subtle" onClick={add}><Plus size={15} /> Adicionar</Button>
         </div>
+      </div>
+    </Modal>
+  )
+}
+
+
+/**
+ * PASSAR O CHAMADO. O técnico foi, voltou e não vai conseguir terminar — alguém precisa
+ * continuar de onde ele parou, sem o chamado voltar para o fim da fila e sem perder as
+ * horas e o texto já registrados. Quem sai continua acompanhando como apoio.
+ */
+function PassarChamado({ t, onFechar, onPassar }: {
+  t: Ticket
+  onFechar: () => void
+  onPassar: (paraId: string | null, motivo: string) => void
+}) {
+  const me = useCurrentUser()
+  const [tecnicos, setTecnicos] = useState<TecnicoRef[] | null>(null)
+  const [escolhido, setEscolhido] = useState<string | null>(null)
+  const [motivo, setMotivo] = useState('')
+
+  useEffect(() => {
+    let vivo = true
+    api.tecnicos(t.localId).then((r) => { if (vivo) setTecnicos(r.filter((x) => x.id !== t.assigneeId)) }).catch(() => { if (vivo) setTecnicos([]) })
+    return () => { vivo = false }
+  }, [t.localId, t.assigneeId])
+
+  const souApoio = (t.sharedWith ?? []).some((p) => p.id === me.id)
+
+  return (
+    <Modal
+      open
+      onClose={onFechar}
+      tituloTexto={`Passar o ${t.code}`}
+      title={
+        <div className="min-w-0">
+          <div className="font-mono text-[11px] tracking-wide text-red-400/80">{t.code}</div>
+          <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">Passar o chamado</h2>
+        </div>
+      }
+      fechar="Cancelar"
+      footer={<Button onClick={() => onPassar(escolhido, motivo)} disabled={!escolhido}><ArrowRightLeft size={14} /> Passar</Button>}
+    >
+      <div className="space-y-3">
+        <p className="text-[12.5px] text-slate-400">
+          Está com <span className="text-slate-200">{t.assigneeName ?? 'ninguém'}</span>. Quem receber continua de onde parou — as horas,
+          os itens e o que já foi escrito ficam no chamado, e quem sai continua acompanhando.
+        </p>
+
+        {souApoio && t.assigneeId !== me.id && (
+          <button
+            onClick={() => setEscolhido(me.id)}
+            className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-3 text-left text-sm ${
+              escolhido === me.id ? 'border-red-700 bg-red-500/10 text-red-200' : 'border-slate-800 text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <span className="inline-flex items-center gap-2"><AvatarPessoa nome={me.name} id={me.id} size={22} /> Assumir eu mesmo</span>
+            <ArrowRightLeft size={15} className="text-slate-600" />
+          </button>
+        )}
+
+        <div>
+          <div className="mb-1 text-xs font-medium text-slate-400">Passar para</div>
+          {tecnicos === null ? (
+            <div className="py-4 text-center"><Loader2 size={16} className="mx-auto animate-spin text-slate-600" /></div>
+          ) : tecnicos.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-800 px-3 py-4 text-center text-[12px] text-slate-500">
+              Nenhum outro técnico atende este local.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {tecnicos.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setEscolhido(p.id)}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-sm ${
+                    escolhido === p.id ? 'border-red-700 bg-red-500/10 text-red-200' : 'border-slate-800 text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2"><AvatarPessoa nome={p.name} id={p.id} size={22} /> {p.name}</span>
+                  {escolhido === p.id && <CheckCircle2 size={15} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Field label="Motivo" hint="opcional — fica no histórico do chamado, para quem pegar entender o que houve">
+          <Textarea rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: precisa de escada maior; volto só na quinta" />
+        </Field>
+
+        <button
+          onClick={() => onPassar(null, motivo)}
+          className="w-full rounded-lg border border-slate-800 py-2.5 text-[12px] text-slate-400 hover:border-slate-700 hover:text-slate-200"
+        >
+          Nenhum destes — devolver para a fila
+        </button>
       </div>
     </Modal>
   )

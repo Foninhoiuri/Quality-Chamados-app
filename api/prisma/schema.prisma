@@ -142,6 +142,25 @@ model Ticket {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   comments      TicketComment[]
+  atendimentos  AtendimentoRegistro[]
+}
+
+// Linha do tempo do ATENDIMENTO: cada análise, solução ou ação escrita por um técnico,
+// com autor e hora. O chamado passa de mão (o técnico foi, voltou e não pôde continuar),
+// e sem isto o texto do segundo apagaria o do primeiro — some quem fez o quê.
+//
+// Os campos `analise`/`solucao`/`acoesTomadas` do Ticket continuam valendo como o estado
+// atual (é a solução que o relatório lê); aqui fica a história de como se chegou nele.
+model AtendimentoRegistro {
+  id         String   @id @default(cuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  autorId    String?
+  autorNome  String
+  // analise | solucao | acoes | passagem (troca de responsável)
+  tipo       String
+  texto      String
+  createdAt  DateTime @default(now())
 }
 
 // Andamento do chamado: o que foi feito, por quem, quando.

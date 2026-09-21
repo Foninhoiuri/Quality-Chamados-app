@@ -41,6 +41,8 @@ export interface Ticket {
   acoesTomadas?: string | null
   visitas?: Visita[]
   itens?: ItemAtendimento[]
+  /** Linha do tempo do atendimento: quem escreveu o quê, e as passagens de responsável. */
+  historico?: RegistroAtendimento[]
   minutosTotais?: number
   commentCount?: number
   resolvedAt?: string | null
@@ -63,12 +65,24 @@ export interface TecnicoRef {
  */
 export interface Visita {
   id?: string
-  data: string // YYYY-MM-DD
+  data: string // YYYY-MM-DD (dia da chegada)
   inicio?: string | null // HH:MM
+  /** Dia da saída — pode ser outro: atendimento que vira a noite. */
+  fimData?: string | null
   fim?: string | null // HH:MM
   minutos: number
   tecnicoId?: string | null
   tecnicoNome?: string
+}
+
+/** Uma entrada da linha do tempo do atendimento. */
+export interface RegistroAtendimento {
+  id: string
+  autorId?: string | null
+  autorNome: string
+  tipo: 'analise' | 'solucao' | 'acoes' | 'passagem'
+  texto: string
+  createdAt: string
 }
 
 export interface ItemAtendimento {

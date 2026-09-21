@@ -227,7 +227,12 @@ const droppedPhotos = (before: string[], after: string[]) => before.filter((p) =
 
 // ----------------------------- atendimento técnico -----------------------------
 
-interface Visita { id: string; data: string; inicio: string | null; fim: string | null; minutos: number; tecnicoId: string | null; tecnicoNome: string }
+/**
+ * Ida ao local. `data`+`inicio` é a chegada; `fimData`+`fim` é a saída — a saída tem data
+ * própria porque o atendimento vira a noite mais do que se imagina. Sem `fimData`, a
+ * saída é no mesmo dia da chegada (é o caso comum e o formato antigo).
+ */
+interface Visita { id: string; data: string; inicio: string | null; fimData: string | null; fim: string | null; minutos: number; tecnicoId: string | null; tecnicoNome: string }
 interface Item { id: string; descricao: string; quantidade: number; tipo: 'trocado' | 'comprado'; valor: number | null }
 
 function parseJsonArray(s: any): any[] {
@@ -243,19 +248,40 @@ const novoId = () => crypto.randomBytes(6).toString('hex')
  * do início = passou da meia-noite). Sem os dois, vale o tempo informado à mão.
  * Quem registrou a ida não é trocado numa edição — uma ida nova é de quem está salvando.
  */
-function cleanVisitas(arr: any, antes: Visita[], u: AuthUser, equipe: { id: string; name: string }[] = []): Visita[] | string {
+/** Recusa por permissão (e não por dado inválido): vira 403, não 400. */
+const IDA_DE_OUTRO = 'você só pode alterar as idas que são suas'
+
+function cleanVisitas(arr: any, antes: Visita[], u: AuthUser, equipe: { id: string; name: string }[] = [], soAsMinhas = false): Visita[] | string {
   if (!Array.isArray(arr)) return 'visitas inválidas'
   const porId = new Map(antes.map((v) => [v.id, v]))
+  // Técnico de apoio: pode somar e fechar as idas dele, nunca mexer nas dos outros.
+  if (soAsMinhas) {
+    const minhas = (v: Visita) => v.tecnicoId === u.sub
+    const enviadas = new Map(arr.filter((v: any) => v?.id).map((v: any) => [String(v.id), v]))
+    for (const antiga of antes) {
+      if (minhas(antiga)) continue
+      const igual = enviadas.get(antiga.id)
+      if (!igual) return IDA_DE_OUTRO
+      if (igual.inicio !== antiga.inicio || igual.fim !== antiga.fim || igual.data !== antiga.data || Number(igual.minutos) !== antiga.minutos) {
+        return IDA_DE_OUTRO
+      }
+    }
+  }
   const out: Visita[] = []
   for (const v of arr.slice(0, 30)) {
     const data = String(v?.data ?? '')
     if (!DATA_RE.test(data)) return 'informe a data de cada ida ao local'
     const inicio = v?.inicio && HORA_RE.test(String(v.inicio)) ? String(v.inicio) : null
     const fim = v?.fim && HORA_RE.test(String(v.fim)) ? String(v.fim) : null
+    const fimData = v?.fimData && DATA_RE.test(String(v.fimData)) ? String(v.fimData) : null
     let minutos: number
     if (inicio && fim) {
-      minutos = minutosDoDia(fim) - minutosDoDia(inicio)
-      if (minutos <= 0) minutos += 24 * 60
+      // Com as duas datas a conta é entre dois instantes: nada de adivinhar virada de dia.
+      const chegada = new Date(`${data}T${inicio}:00`).getTime()
+      const saida = new Date(`${fimData ?? data}T${fim}:00`).getTime()
+      minutos = Math.round((saida - chegada) / 60000)
+      if (minutos < 0 && !fimData) minutos += 24 * 60 // formato antigo: saída no dia seguinte
+      if (minutos < 0) return 'a saída não pode ser antes da chegada'
     } else if (inicio) {
       // Ida EM ANDAMENTO: o técnico marcou a chegada e ainda está no local. Conta zero
       // até ele marcar a saída — é o que permite registrar com um toque, sem formulário.
@@ -264,14 +290,21 @@ function cleanVisitas(arr: any, antes: Visita[], u: AuthUser, equipe: { id: stri
       minutos = Math.round(Number(v?.minutos))
       if (!Number.isFinite(minutos) || minutos <= 0) return 'informe hora de início e saída, ou o tempo no local'
     }
-    if (minutos > 24 * 60) return 'uma ida ao local não pode passar de 24 horas'
+    if (minutos > 48 * 60) return 'uma ida ao local não pode passar de 48 horas'
     const existente = v?.id ? porId.get(String(v.id)) : undefined
     // Uma ida pertence a UM técnico — é o que impede o chamado compartilhado de contar as
     // mesmas horas duas vezes. Quem preenche diz qual dos técnicos do chamado foi nela.
-    const escolhido = v?.tecnicoId ? equipe.find((p) => p.id === String(v.tecnicoId)) : undefined
+    /**
+     * O apoio assina as próprias idas — as que ele acabou de criar — e nunca reassina a
+     * ida de outro que veio junto no mesmo envio (a tela manda a lista inteira).
+     */
+    const daPessoa = existente && existente.tecnicoId !== u.sub
+    const escolhido = soAsMinhas
+      ? (daPessoa ? undefined : equipe.find((p) => p.id === u.sub))
+      : v?.tecnicoId ? equipe.find((p) => p.id === String(v.tecnicoId)) : undefined
     out.push({
       id: existente?.id ?? novoId(),
-      data, inicio, fim, minutos,
+      data, inicio, fimData: fim ? fimData ?? data : null, fim, minutos,
       tecnicoId: escolhido?.id ?? existente?.tecnicoId ?? u.sub,
       tecnicoNome: escolhido?.name ?? existente?.tecnicoNome ?? u.name,
     })
@@ -337,6 +370,13 @@ async function dataDoLancamento(u: AuthUser, b: any, jaRealizado: boolean, reply
 
 async function shapeTickets(tickets: any[]) {
   const locais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((c) => [c.id, c.name]))
+  // A história do atendimento (quem escreveu o quê) viaja com o chamado: a tela mostra
+  // isso dentro do card, e buscar depois seria uma requisição por chamado aberto.
+  const historico = tickets.length
+    ? await prisma.atendimentoRegistro.findMany({ where: { ticketId: { in: tickets.map((t) => t.id) } }, orderBy: { createdAt: 'asc' } })
+    : []
+  const porChamado: Record<string, any[]> = {}
+  for (const r of historico) (porChamado[r.ticketId] ??= []).push(r)
   const counts = tickets.length
     ? await prisma.ticketComment.groupBy({ by: ['ticketId'], where: { ticketId: { in: tickets.map((t) => t.id) } }, _count: true })
     : []
@@ -351,6 +391,7 @@ async function shapeTickets(tickets: any[]) {
     sharedWith: parseJsonArray(t.sharedWith),
     minutosTotais: minutosTotais(t),
     commentCount: byTicket[t.id] ?? 0,
+    historico: porChamado[t.id] ?? [],
   }))
 }
 
@@ -1241,6 +1282,81 @@ app.post('/tickets/:id/share', async (req: any, reply) => {
   return (await shapeTickets([atualizado]))[0]
 })
 
+/**
+ * PASSAR O CHAMADO: o técnico foi, voltou e não vai conseguir terminar — então entrega
+ * para outro, sem o chamado voltar para o fim da fila e sem perder nada do atendimento.
+ * Sem `paraId`, devolve para a fila (o mesmo que soltar).
+ *
+ * Quem passa: o responsável atual, quem está junto no chamado (assume para si) ou quem
+ * corrige atendimento.
+ */
+app.post('/tickets/:id/transferir', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  const t = await prisma.ticket.findUnique({ where: { id: req.params.id } })
+  if (!t || t.canceledAt) return reply.code(404).send()
+  if (!canSeeTicket(u, t, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
+  if ((await doneKeys()).has(t.status)) return reply.code(400).send({ error: 'chamado concluído não muda de responsável' })
+
+  const paraId = req.body?.paraId ? String(req.body.paraId) : null
+  const daEquipe = sharedIds(t).includes(u.sub)
+  const podePassar = t.assigneeId === u.sub || u.perms.has('corrigir_atendimento') || (daEquipe && paraId === u.sub)
+  if (!podePassar) return reply.code(403).send({ error: 'só quem está com o chamado passa ele adiante' })
+
+  const motivo = String(req.body?.motivo ?? '').trim().slice(0, 300)
+  const statuses = await ticketStatuses()
+
+  if (!paraId) {
+    const updated = await prisma.ticket.update({
+      where: { id: t.id },
+      data: { assigneeId: null, assigneeName: null, status: statuses[0].key },
+    })
+    await prisma.atendimentoRegistro.create({
+      data: { ticketId: t.id, autorId: u.sub, autorNome: u.name, tipo: 'passagem', texto: `${t.assigneeName ?? u.name} devolveu o chamado para a fila${motivo ? ` — ${motivo}` : ''}` },
+    })
+    await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · devolvido à fila`)
+    const aud = [...(await usersWithPerm('aceitar_chamados', t.localId)), t.createdById].filter((id): id is string => !!id && id !== u.sub)
+    await announce(aud, { kind: 'ticket', title: `Chamado ${t.code} voltou para a fila`, body: t.title, url: ticketUrl(t.id), event: 'chamado_fila' }, { push: true })
+    return (await shapeTickets([updated]))[0]
+  }
+
+  // Só quem atende pode receber o chamado, e o local precisa estar no escopo dele.
+  const podemAtender = new Set(await usersWithPerm('registrar_atendimento', t.localId))
+  if (!podemAtender.has(paraId)) return reply.code(400).send({ error: 'essa pessoa não atende chamados deste local' })
+  const novo = await prisma.user.findFirst({ where: { id: paraId, status: 'ativo' }, select: { id: true, name: true } })
+  if (!novo) return reply.code(404).send({ error: 'técnico não encontrado' })
+
+  // Quem sai do comando continua acompanhando: entra como apoio, e quem assume sai de lá.
+  const antes = shared(t)
+  const equipe = antes.filter((p) => p.id !== novo.id)
+  if (t.assigneeId && t.assigneeId !== novo.id && !equipe.some((p) => p.id === t.assigneeId)) {
+    equipe.push({ id: t.assigneeId, name: t.assigneeName ?? '—' })
+  }
+
+  const updated = await prisma.ticket.update({
+    where: { id: t.id },
+    data: { assigneeId: novo.id, assigneeName: novo.name, sharedWith: JSON.stringify(equipe) },
+  })
+  const texto = t.assigneeId
+    ? `${t.assigneeName ?? '—'} passou o chamado para ${novo.name}${motivo ? ` — ${motivo}` : ''}`
+    : `${novo.name} assumiu o chamado${motivo ? ` — ${motivo}` : ''}`
+  await prisma.atendimentoRegistro.create({
+    data: { ticketId: t.id, autorId: u.sub, autorNome: u.name, tipo: 'passagem', texto },
+  })
+  await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · ${texto}`)
+  await announce([novo.id, t.createdById, t.assigneeId].filter((id): id is string => !!id && id !== u.sub), {
+    kind: 'ticket', title: `Chamado ${t.code} agora é de ${novo.name}`, body: t.title, url: ticketUrl(t.id), event: 'chamado_compartilhado',
+  }, { push: true })
+  return (await shapeTickets([updated]))[0]
+})
+
+/** Pessoas do sistema com foto — o app mostra o rosto de quem escreveu, não só a inicial. */
+app.get('/pessoas', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  return prisma.user.findMany({ where: { status: 'ativo' }, select: { id: true, name: true, avatar: true }, orderBy: { name: 'asc' } })
+})
+
 /** Técnicos que podem ser postos junto num chamado (para a tela de compartilhar). */
 app.get('/tecnicos', async (req: any, reply) => {
   const u = await guard(req, reply, 'ver_chamados')
@@ -1297,6 +1413,26 @@ app.post('/tickets/:id/release', async (req: any, reply) => {
 })
 
 /**
+ * Guarda na linha do tempo o texto que mudou, com autor e hora. O campo do chamado
+ * continua sendo o estado atual; isto aqui é a história — quem escreveu o quê, quando.
+ */
+async function registrarNaLinhaDoTempo(u: AuthUser, ticketId: string, antes: any, depois: any) {
+  const campos: { chave: 'analise' | 'solucao' | 'acoesTomadas'; tipo: string }[] = [
+    { chave: 'analise', tipo: 'analise' },
+    { chave: 'solucao', tipo: 'solucao' },
+    { chave: 'acoesTomadas', tipo: 'acoes' },
+  ]
+  for (const c of campos) {
+    if (!(c.chave in depois)) continue
+    const novo = String(depois[c.chave] ?? '').trim()
+    if (!novo || novo === String(antes[c.chave] ?? '').trim()) continue
+    await prisma.atendimentoRegistro.create({
+      data: { ticketId, autorId: u.sub, autorNome: u.name, tipo: c.tipo, texto: novo.slice(0, 8000) },
+    })
+  }
+}
+
+/**
  * ATENDIMENTO TÉCNICO: análise, solução, ações, idas ao local (horas), itens e fotos
  * finais. Quem preenche é o responsável pelo chamado; quem pode editar e mover
  * com `corrigir_atendimento` (administrador e gestor) também corrige.
@@ -1307,8 +1443,20 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
   const before = await prisma.ticket.findUnique({ where: { id: req.params.id } })
   if (!before) return reply.code(404).send()
   if (!canSeeTicket(u, before, scopeIds(u))) return reply.code(403).send({ error: 'fora do escopo' })
-  if (before.assigneeId !== u.sub && !u.perms.has('corrigir_atendimento')) {
-    return reply.code(403).send({ error: before.assigneeId ? 'só o responsável preenche o atendimento' : 'pegue o chamado antes de registrar o atendimento' })
+  /**
+   * Quem preenche o atendimento é o responsável. MAS quem está junto no chamado vai ao
+   * local de verdade — e precisa marcar a própria chegada e saída, senão as horas dele
+   * somem ou entram no nome do outro. Então o apoio mexe só nas idas, e só nas dele.
+   */
+  const souResponsavel = before.assigneeId === u.sub
+  const souApoio = sharedIds(before).includes(u.sub)
+  const soAsMinhasIdas = !souResponsavel && !u.perms.has('corrigir_atendimento')
+  if (soAsMinhasIdas) {
+    if (!souApoio) {
+      return reply.code(403).send({ error: before.assigneeId ? 'só o responsável preenche o atendimento' : 'pegue o chamado antes de registrar o atendimento' })
+    }
+    const fora = Object.keys(req.body ?? {}).filter((k) => k !== 'visitas')
+    if (fora.length) return reply.code(403).send({ error: 'quem está junto no chamado registra as próprias idas; o resto é com o responsável' })
   }
   if ((await doneKeys()).has(before.status) && !u.perms.has('editar_concluidos')) {
     return reply.code(403).send({ error: 'chamado concluído — sem permissão para editar o atendimento' })
@@ -1326,8 +1474,8 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
       ...(before.assigneeId ? [{ id: before.assigneeId, name: before.assigneeName ?? '—' }] : []),
       ...shared(before),
     ]
-    const v = cleanVisitas(b.visitas, parseJsonArray(before.visitas), u, equipe)
-    if (typeof v === 'string') return reply.code(400).send({ error: v })
+    const v = cleanVisitas(b.visitas, parseJsonArray(before.visitas), u, equipe, soAsMinhasIdas)
+    if (typeof v === 'string') return reply.code(v === IDA_DE_OUTRO ? 403 : 400).send({ error: v })
     data.visitas = JSON.stringify(v)
   }
   if ('itens' in b) {
@@ -1343,6 +1491,7 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
     data.donePhotos = JSON.stringify(next)
   }
   const t = await prisma.ticket.update({ where: { id: before.id }, data })
+  await registrarNaLinhaDoTempo(u, t.id, before, data)
   if (orphans.length) deleteUploads(orphans).catch(() => {})
   const mins = minutosTotais(t)
   await audit(u, 'editar', 'chamado', t.title, undefined, `${t.code} · atendimento técnico atualizado${mins ? ` (${Math.round((mins / 60) * 10) / 10} h no total)` : ''}`)

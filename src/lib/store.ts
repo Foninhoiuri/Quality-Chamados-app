@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { api, setToken, getToken, ApiError } from './api'
 import { effectivePerms, type PermissionDef } from './permissions'
 import { applyTheme, getStoredTheme, type Theme } from './theme'
-import type { Local, LogEntry, Notification, Role, Ticket, User } from './types'
+import type { Local, LogEntry, Notification, Role, TecnicoRef, Ticket, User } from './types'
 
 /**
  * Store ligado à API (fonte de verdade = backend). As ações chamam a API e
@@ -52,6 +52,9 @@ interface AppState {
   tickets: Ticket[]
   notifications: Notification[]
   settings: Record<string, string>
+  /** Quem é quem, com foto: o app mostra o rosto de quem escreveu, não só a inicial. */
+  pessoas: TecnicoRef[]
+  refreshPessoas: () => Promise<void>
 
   boot: () => Promise<void>
   setup: (data: { name: string; email: string; password: string }) => Promise<boolean>
@@ -90,6 +93,7 @@ interface AppState {
   acceptTicket: (id: string) => Promise<void>
   releaseTicket: (id: string) => Promise<void>
   cancelTicket: (id: string, motivo?: string) => Promise<void>
+  transferirTicket: (id: string, paraId: string | null, motivo?: string) => Promise<void>
   shareTicket: (id: string, userIds: string[]) => Promise<void>
   removeTicket: (id: string) => Promise<void>
 
@@ -119,6 +123,8 @@ export const useStore = create<AppState>()((set, get) => ({
   tickets: [],
   notifications: [],
   settings: {},
+  pessoas: [],
+  refreshPessoas: async () => set({ pessoas: await api.pessoas().catch(() => []) }),
 
   boot: async () => {
     if (!getToken()) {
@@ -281,6 +287,10 @@ export const useStore = create<AppState>()((set, get) => ({
     await api.cancelTicket(id, motivo)
     await get().refreshTickets()
   },
+  transferirTicket: async (id, paraId, motivo) => {
+    await api.transferirTicket(id, paraId, motivo)
+    await get().refreshTickets()
+  },
   shareTicket: async (id, userIds) => {
     await api.shareTicket(id, userIds)
     await get().refreshTickets()
@@ -303,7 +313,7 @@ export const useStore = create<AppState>()((set, get) => ({
 }))
 
 async function hydrateAll(set: (partial: Partial<AppState>) => void) {
-  const [locais, users, roles, permissions, tickets, settings, notifications] = await Promise.all([
+  const [locais, users, roles, permissions, tickets, settings, notifications, pessoas] = await Promise.all([
     api.locais().catch(() => []),
     api.users().catch(() => []),
     api.roles().catch(() => []),
@@ -311,8 +321,9 @@ async function hydrateAll(set: (partial: Partial<AppState>) => void) {
     api.tickets().catch(() => []),
     api.settings().catch(() => ({})),
     api.notifications().catch(() => []),
+    api.pessoas().catch(() => []),
   ])
-  set({ locais, users, roles, permissions, tickets, settings, notifications })
+  set({ locais, users, roles, permissions, tickets, settings, notifications, pessoas })
 }
 
 // ---------------- hooks de conveniência ----------------

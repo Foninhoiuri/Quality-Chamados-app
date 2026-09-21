@@ -44,8 +44,17 @@ imagens Docker próprios. Mudanças aqui não devem exigir mudanças no NOC, e v
 - **Gestor não mexe em chamado**: ele acompanha. No módulo Chamados tem o mesmo alcance do
   Operador (ver, abrir, comentar, anexar) mais o histórico. Não pega, não move, não atende, não
   conclui, não compartilha e não cancela. Ver `FORA_DO_GESTOR` em `permissions-def.ts`.
+- **O ponto é um botão só**, que alterna chegada/saída e salva na hora. Cada ida tem dois
+  instantes com data própria (`data`+`inicio`, `fimData`+`fim`) — atendimento que vira a
+  noite é comum e somar "hora do mesmo dia" dava 22h de trabalho.
+- **A linha do tempo do atendimento (`AtendimentoRegistro`) não se reescreve**: cada texto
+  guarda autor e hora. Os campos do Ticket seguem sendo o estado atual; o histórico é como
+  se chegou nele. O chamado troca de mão, e sem isso some quem fez o quê.
+- **Passar o chamado** (`/tickets/:id/transferir`) mantém horas, itens e textos, põe quem
+  saiu como apoio e registra o motivo no histórico. Sem `paraId`, devolve à fila.
 - **Compartilhar não divide o atendimento**: quem está junto (`sharedWith`) acompanha e é avisado;
-  quem preenche análise, solução, horas e itens continua sendo o responsável que pegou o chamado.
+  quem preenche análise, solução e itens continua sendo o responsável que pegou o chamado.
+  A exceção é o PONTO: o apoio marca as próprias idas (e só as dele) — ele foi ao local.
 - **Cancelado só existe na auditoria**: o chamado some do quadro, do histórico, do dashboard e dos
   relatórios. A linha da auditoria é que guarda título, relato, quem abriu, quem cancelou e o motivo.
 - Data de abertura/conclusão só se edita com `ajustar_datas_chamado`. A exceção é o serviço já

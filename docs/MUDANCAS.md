@@ -5,6 +5,62 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 21/09/2026 — atendimento em campo: ponto, passagem de bastão e conversa
+
+### O ponto (chegada e saída)
+
+- **Um botão só, que alterna**: "Marcar minha chegada agora" vira "Marcar minha saída
+  agora", e salva na hora. Antes havia um botão no chamado e outro dentro do modal, e dava
+  para pensar que a saída estava marcando o horário da chegada.
+- **Cada ponto tem a sua data.** A chegada às 23h com saída à 1h30 agora dá 2h30 — antes a
+  saída era tratada como hora do mesmo dia. No formulário, chegada e saída são campos de
+  data e hora, cada um com um "agora" ao lado.
+- **A ida marcada fora do modal aparece no modal** para ser corrigida: o formulário
+  acompanha o que mudou no servidor.
+- **Quem está junto no chamado marca a própria ida.** O apoio vai ao local de verdade; sem
+  isso, as horas dele sumiam ou entravam no nome do responsável. Ele mexe só nas idas
+  dele — escrever o atendimento continua sendo do responsável.
+
+### Passar o chamado para outro técnico
+
+O técnico foi, voltou e não vai conseguir terminar. Agora existe **"Passar para outro
+técnico"**: quem recebe continua de onde o outro parou (horas, itens e textos ficam), quem
+sai continua acompanhando como apoio, e o motivo entra no histórico. Quem está junto no
+chamado pode **assumir para si**. Sem escolher ninguém, devolve para a fila.
+
+### Histórico do atendimento
+
+Cada análise, solução e ação agora guarda **quem escreveu e quando**, numa linha do tempo
+dentro do card — junto com as passagens de responsável. Antes, o segundo técnico
+sobrescrevia o texto do primeiro sem deixar rastro. Aparece no chamado em andamento e no
+concluído.
+
+### A conversa saiu do modal
+
+"Andamento" virou **Conversa**, em janela própria, com botão no cartão do chamado ao lado
+da ação principal e no detalhe. Dá para conversar **sem pegar o chamado**, e quem está em
+campo não precisa rolar o atendimento inteiro para ler um recado.
+
+### Endereço à mão
+
+Depois de pegar o chamado, o endereço aparece em destaque com **"Abrir no GPS"** e
+**"Copiar"** — antes era um link pequeno de "mapa" ao lado do nome do local.
+
+### Outros
+
+- **Modal em tela cheia no celular** (chamado, atendimento, conversa e concluído), com
+  `100dvh` para a janela encolher junto com o teclado em vez de ficar atrás dele.
+- **Fotos antes dos itens** no atendimento: o seletor de imagem cobre a tela no celular e
+  voltar para o fim de um formulário longo era o que mais irritava.
+- **"Salvar e concluir" saiu do atendimento.** O modal salva o atendimento; concluir é o
+  botão do chamado. Dois botões parecidos no mesmo rodapé pareciam a mesma coisa.
+- **Foto de perfil em todo lugar**: comentários, técnico do chamado, quem está junto, idas,
+  histórico, lista de usuários e registros. Sem foto, as iniciais.
+- Seis testes novos (16 no total): passagem de bastão, histórico por autor, ida que vira a
+  noite, saída antes da chegada e os limites do técnico de apoio.
+
+---
+
 ## 18/09/2026 — sem sinal, backup e testes
 
 ### Funcionar sem sinal

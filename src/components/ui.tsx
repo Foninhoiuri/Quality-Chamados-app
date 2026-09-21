@@ -194,6 +194,7 @@ export function Modal({
   wide,
   onSubmit,
   fechar,
+  telaCheia,
 }: {
   open: boolean
   onClose: () => void
@@ -212,6 +213,11 @@ export function Modal({
    * "Cancelar" não precisa do mesmo botão duas vezes; passe o rótulo para forçá-lo.
    */
   fechar?: string | null
+  /**
+   * No celular ocupa a tela inteira (como o menu da conta) em vez de uma folha de 92%.
+   * Formulário longo com teclado aberto não cabe em folha.
+   */
+  telaCheia?: boolean
 }) {
   if (!open) return null
   const rotuloFechar = fechar === undefined ? (footer ? null : 'Fechar') : fechar
@@ -228,7 +234,7 @@ export function Modal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-auto sm:items-center sm:p-8">
+    <div className={cn('fixed inset-0 z-50 flex justify-center overflow-auto sm:items-center sm:p-8', telaCheia ? 'items-stretch' : 'items-end')}>
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
         role="dialog"
@@ -237,13 +243,15 @@ export function Modal({
         onKeyDown={onKeyDown}
         className={cn(
           // No celular é uma folha que sobe do rodapé: o conteúdo rola, o rodapé com as
-          // ações fica parado onde o polegar alcança.
-          'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-800 bg-slate-900 shadow-2xl',
+          // ações fica parado onde o polegar alcança. `telaCheia` usa a altura toda —
+          // e com `100dvh` a janela encolhe junto com o teclado, em vez de ficar atrás dele.
+          'relative z-10 flex w-full flex-col overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl',
+          telaCheia ? 'h-[100dvh] max-h-[100dvh] rounded-none' : 'max-h-[92vh] rounded-t-2xl',
           'sm:my-auto sm:max-h-[90vh] sm:rounded-xl',
           wide ? 'sm:max-w-2xl' : 'sm:max-w-md',
         )}
       >
-        <div className="shrink-0 border-b border-slate-800 px-5 py-3.5">
+        <div className="shrink-0 border-b border-slate-800 px-5 py-3.5" style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))' }}>
           {typeof title === 'string' ? <h2 className="min-w-0 truncate text-sm font-semibold text-slate-100">{title}</h2> : title}
         </div>
         <div className="flex-1 overflow-auto px-4 py-4 sm:px-5">{children}</div>

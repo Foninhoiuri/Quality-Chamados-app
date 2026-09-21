@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, Check, X, Copy } from 'lucide-react'
 import { Button, Card, Field, Input, Modal, PageHeader, RoleBadge, Select } from '@/components/ui'
 import { PasswordInput } from '@/components/secret'
 import { useStore, useCurrentUser, useCan } from '@/lib/store'
-import { iniciais } from '@/lib/utils'
+import { AvatarPessoa } from '@/components/Pessoa'
 import type { Local, User } from '@/lib/types'
 
 // Escopo: 'global' = todos os locais; senão, ids separados por vírgula.
@@ -165,7 +165,7 @@ export default function Usuarios() {
           return (
             <Card key={u.id} className="p-3">
               <div className="flex items-start gap-2.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ background: role?.color ?? '#71717a' }}>{iniciais(u.name)}</div>
+                <AvatarPessoa nome={u.name} id={u.id} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate font-medium text-slate-100">{u.name}</span>
@@ -208,7 +208,7 @@ export default function Usuarios() {
                 <tr key={u.id} className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30">
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ background: role?.color ?? '#71717a' }}>{iniciais(u.name)}</div>
+                      <AvatarPessoa nome={u.name} id={u.id} size={32} />
                       <div>
                         <div className="flex items-center gap-2 font-medium text-slate-100">
                           {u.name}

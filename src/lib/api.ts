@@ -138,6 +138,11 @@ export const api = {
   /** Define quem está junto no chamado (lista completa, não incremental). */
   shareTicket: (id: string, userIds: string[]) => req<Ticket>('POST', `/tickets/${id}/share`, { userIds }),
   tecnicos: (localId?: string | null) => req<TecnicoRef[]>('GET', `/tecnicos${localId ? `?localId=${localId}` : ''}`),
+  /** Passa o chamado para outro técnico; sem `paraId`, devolve para a fila. */
+  transferirTicket: (id: string, paraId: string | null, motivo?: string) =>
+    req<Ticket>('POST', `/tickets/${id}/transferir`, { paraId, motivo }),
+  /** Todas as pessoas ativas com a foto — para mostrar rosto em vez de inicial. */
+  pessoas: () => req<TecnicoRef[]>('GET', '/pessoas'),
   deleteTicket: (id: string) => req('DELETE', `/tickets/${id}`),
   comments: (ticketId: string) => req<TicketComment[]>('GET', `/tickets/${ticketId}/comments`),
   addComment: (ticketId: string, body: string) => req<TicketComment>('POST', `/tickets/${ticketId}/comments`, { body }),

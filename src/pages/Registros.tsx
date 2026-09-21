@@ -7,7 +7,7 @@ import { api } from '@/lib/api'
 import { CORES_CATEGORIA, parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { paraInputLocal } from '@/lib/tickets'
 import { LocalSelect } from '@/components/LocalSelect'
-import { iniciais } from '@/lib/utils'
+import { AvatarPessoa } from '@/components/Pessoa'
 import type { Registro, TipoRegistro, TipoRegistroDef } from '@/lib/types'
 
 interface RForm { tipo: TipoRegistro; ocorridoEm: string; solicitante: string; titulo: string; descricao: string; localId: string }
@@ -206,7 +206,7 @@ export default function Registros() {
                           {/* Quem registrou é o que se procura quando surge dúvida — por isso
                               ele vem com a iniciais e não perdido no meio da linha cinza. */}
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-800/80 py-0.5 pl-0.5 pr-2 text-[11px] text-slate-200">
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[9px] font-semibold text-white">{iniciais(r.autorName)}</span>
+                            <AvatarPessoa nome={r.autorName} id={r.autorId} size={20} />
                             {r.autorName}
                           </span>
                           {r.solicitante && <span className="inline-flex items-center gap-1"><Phone size={11} /> solicitado por <span className="text-slate-300">{r.solicitante}</span></span>}
