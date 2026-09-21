@@ -36,8 +36,11 @@ export function PageHeader({ title, subtitle, actions, menu }: {
         <h1 className="text-xl font-semibold tracking-tight text-slate-100">{title}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-slate-400">{subtitle}</p>}
       </div>
+      {/* `ml-auto`: quando o título é comprido, esta caixa quebra para a linha de baixo —
+          e sozinha numa linha o `justify-between` do pai a jogaria para a ESQUERDA, com
+          os três pontinhos na beirada errada e o menu abrindo para fora da tela. */}
       {(actions || itens.length > 0) && (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {itens.length > 0 && (
             <div className="hidden flex-wrap items-center gap-2 sm:flex">
               {itens.map((a) => (

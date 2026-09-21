@@ -16,7 +16,9 @@ export function AvatarPessoa({ nome, id, size = 20, className }: {
   size?: number
   className?: string
 }) {
-  const foto = useStore((s) => (id ? s.pessoas.find((p) => p.id === id)?.avatar : null))
+  // A minha foto vem do meu próprio cadastro: assim que troco a foto ela muda em todas as
+  // telas, sem esperar a lista de pessoas ser recarregada.
+  const foto = useStore((s) => (!id ? null : s.me?.id === id ? s.me.avatar : s.pessoas.find((p) => p.id === id)?.avatar))
   const estilo = { width: size, height: size, fontSize: Math.max(8, Math.round(size * 0.42)) }
 
   if (foto) {

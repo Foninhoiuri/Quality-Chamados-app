@@ -193,7 +193,11 @@ export const useStore = create<AppState>()((set, get) => ({
     set({ me: await api.changePassword({ newPassword, currentPassword }) })
   },
   updateProfile: async (patch) => {
-    set({ me: await api.updateProfile(patch) })
+    const me = await api.updateProfile(patch)
+    // `pessoas` é a lista de rostos que o app inteiro usa (comentário, técnico do chamado,
+    // autor do registro). Sem recarregar aqui, a foto recém-enviada só apareceria na
+    // próxima vez que o app abrisse — em todo lugar continuaria a inicial.
+    set({ me, pessoas: await api.pessoas().catch(() => get().pessoas) })
   },
 
   refreshLocais: async () => set({ locais: await api.locais() }),
@@ -242,11 +246,14 @@ export const useStore = create<AppState>()((set, get) => ({
   updateUser: async (id, patch) => {
     await api.updateUser(id, patch)
     await get().refreshUsers()
+    // Nome, foto e quem está ativo saem daqui para os avatares do resto do app.
+    await get().refreshPessoas()
     if (id === get().me?.id) set({ me: await api.me() })
   },
   removeUser: async (id) => {
     await api.deleteUser(id)
     await get().refreshUsers()
+    await get().refreshPessoas()
   },
 
   addRole: async (input) => {

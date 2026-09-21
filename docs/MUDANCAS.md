@@ -5,6 +5,23 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 21/09/2026 — ajustes de tela: ponto no rodapé, passar o bastão e foto do perfil
+
+- **"Cheguei agora" no rodapé do chamado**, no lugar do botão "Atendimento": marcar a hora
+  é o que mais se faz com o celular na mão e estava a dois toques de distância. Ele vira
+  "Saí agora" quando você já está no local. O rodapé ficou Conversa e Cheguei em cima,
+  Fechar e a ação que termina o chamado embaixo; o formulário do atendimento continua no
+  corpo do chamado.
+- **"Passar para outro técnico" saiu do fim do chamado** e foi para junto de "Compartilhar
+  com outro técnico", no mesmo tamanho: são o mesmo assunto — quem está no chamado.
+- **A foto do perfil aparece em todos os avatares** assim que é enviada. Antes só mudava
+  depois de fechar e abrir o app, porque a lista de rostos não era recarregada.
+- **Os três pontinhos do cabeçalho abrem para dentro da tela** em Em andamento e em
+  Registros. Com o título comprido, a caixa de ações caía para a linha de baixo e ia parar
+  na esquerda, levando o menu para fora da tela junto.
+
+---
+
 ## 21/09/2026 — atendimento em campo: ponto, passagem de bastão e conversa
 
 ### O ponto (chegada e saída)

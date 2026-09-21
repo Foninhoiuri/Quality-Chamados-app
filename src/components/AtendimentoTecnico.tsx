@@ -154,31 +154,24 @@ export function HistoricoAtendimento({ historico }: { historico: RegistroAtendim
  * O atendimento dentro do chamado: o ponto (um toque), o que já foi registrado e a
  * história de quem fez o quê. Preencher é no modal próprio — no celular, ocupando a tela.
  */
-export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, onSalvo }: {
-  t: Ticket
-  podeEditar: boolean
-  /** Marcar chegada/saída — o apoio também faz, mesmo sem escrever o atendimento. */
-  podeMarcarPonto?: boolean
-  onEditar: () => void
-  onSalvo?: () => void
-}) {
+/**
+ * CHEGUEI / SAÍ em um toque, salvando na hora — quem está no portão não preenche
+ * formulário. O horário é sempre o do momento do toque: chegada marca a chegada, saída
+ * marca a saída, e a conta entre elas é do servidor.
+ *
+ * Fica aqui fora porque o mesmo ponto é marcado de dois lugares: dentro do atendimento e
+ * no rodapé do chamado, onde o técnico não precisa abrir mais nada.
+ */
+export function usarPonto(t: Ticket, onSalvo?: () => void) {
   const showToast = useStore((s) => s.showToast)
-  const [marcando, setMarcando] = useState(false)
-  const vazio = !t.analise && !t.possivelSolucao && !t.solucao && !t.acoesTomadas && !(t.visitas?.length) && !(t.itens?.length) && !(t.donePhotos?.length)
-
   const me = useStore((s) => s.me)
-  const podePonto = podeMarcarPonto ?? podeEditar
+  const [marcando, setMarcando] = useState(false)
   /**
    * A ida aberta que importa é a MINHA: com dois técnicos no local, o botão de cada um
    * fecha a própria ida — senão um marcaria a saída do outro.
    */
   const emAndamento = (t.visitas ?? []).find((v) => v.inicio && !v.fim && (!me || !v.tecnicoId || v.tecnicoId === me.id))
 
-  /**
-   * CHEGUEI / TERMINEI em um toque, salvando na hora — quem está no portão não preenche
-   * formulário. O horário é sempre o do momento do toque: chegada marca a chegada, saída
-   * marca a saída, e a conta entre elas é do servidor.
-   */
   async function marcarPonto() {
     const agora = agoraLocal()
     const visitas: Visita[] = (t.visitas ?? []).map((v) => ({ ...v }))
@@ -206,6 +199,41 @@ export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, o
       setMarcando(false)
     }
   }
+
+  return { emAndamento, marcando, marcarPonto }
+}
+
+/**
+ * O ponto no rodapé do chamado: quem chegou no local marca a hora sem abrir o atendimento
+ * — é o que mais se faz com o celular na mão, e era o que estava mais longe.
+ */
+export function BotaoPonto({ t, onSalvo }: { t: Ticket; onSalvo?: () => void }) {
+  const { emAndamento, marcando, marcarPonto } = usarPonto(t, onSalvo)
+  return (
+    <Button
+      variant="subtle"
+      onClick={marcarPonto}
+      disabled={marcando}
+      title={emAndamento ? 'Marcar a hora em que saí do local' : 'Marcar a hora em que cheguei no local'}
+      className={emAndamento ? 'border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-500' : undefined}
+    >
+      {marcando ? <Loader2 size={14} className="animate-spin" /> : emAndamento ? <LogOut size={14} /> : <LogIn size={14} />}
+      {emAndamento ? 'Saí agora' : 'Cheguei agora'}
+    </Button>
+  )
+}
+
+export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, onSalvo }: {
+  t: Ticket
+  podeEditar: boolean
+  /** Marcar chegada/saída — o apoio também faz, mesmo sem escrever o atendimento. */
+  podeMarcarPonto?: boolean
+  onEditar: () => void
+  onSalvo?: () => void
+}) {
+  const vazio = !t.analise && !t.possivelSolucao && !t.solucao && !t.acoesTomadas && !(t.visitas?.length) && !(t.itens?.length) && !(t.donePhotos?.length)
+  const podePonto = podeMarcarPonto ?? podeEditar
+  const { emAndamento, marcando, marcarPonto } = usarPonto(t, onSalvo)
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/30 p-3">

@@ -8,7 +8,7 @@ import { api, assetUrl } from '@/lib/api'
 import { esperaDesde, FASES, faseDoTicket, paraInputLocal, parseStatuses } from '@/lib/tickets'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
 import { PhotoInput } from '@/components/PhotoInput'
-import { AtendimentoTecnico, ModalAtendimento } from '@/components/AtendimentoTecnico'
+import { AtendimentoTecnico, BotaoPonto, ModalAtendimento } from '@/components/AtendimentoTecnico'
 import { ChatChamado } from '@/components/chamados/ChatChamado'
 import { LocalSelect, mapsUrl } from '@/components/LocalSelect'
 import { CompartilharChamado } from '@/components/CompartilharChamado'
@@ -620,18 +620,23 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             )}
           </div>
         ) : 'Chamado'}
-        fechar="Fechar"
+        fechar={null}
         wide
         footer={detail ? (
           <>
-            {/* Fechar (do próprio modal), o atendimento e a ação da etapa. O resto mora
-                dentro do modal — rodapé com seis botões não se usa com uma mão só. */}
+            {/* Conversa e o ponto em cima, fechar e a ação da etapa embaixo: no celular o
+                que se usa o dia inteiro (cheguei/saí) fica ao alcance do polegar, e o
+                atendimento inteiro continua no corpo do chamado. */}
             <Button variant="subtle" onClick={() => setConversando(detail)}>
               <MessagesSquare size={14} /> Conversa{detail.commentCount ? ` (${detail.commentCount})` : ''}
             </Button>
-            {canAtender && (ehMeu(detail) || canCorrigir) && detail.assigneeId && podeMexer(detail) && (
-              <Button variant="subtle" onClick={() => setAtendendo(detail)}><Wrench size={14} /> Atendimento</Button>
+            {!!detail.assigneeId && !doneKeys.has(detail.status) && podeMexer(detail) &&
+              ((canAtender && (ehMeu(detail) || canCorrigir)) || (detail.sharedWith ?? []).some((p) => p.id === me.id)) && (
+              <BotaoPonto t={detail} onSalvo={recarregarDetalhe} />
             )}
+            {/* Fechar não é o primeiro do rodapé: no celular ele fica na linha de baixo,
+                ao lado da ação que termina o chamado. No desktop volta para a ponta. */}
+            <Button variant="subtle" className="sm:order-first" onClick={closeDetail}>Fechar</Button>
             {(() => {
               const etapa = proximaEtapa(detail)
               if (!etapa) return null
@@ -651,8 +656,12 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             podeAtender={canAtender && (ehMeu(detail) || canCorrigir) && podeMexer(detail)}
             podeCompartilhar={canShare && !!detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir)}
             onEditarAtendimento={() => setAtendendo(detail)}
+            onPassar={
+              detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir || (detail.sharedWith ?? []).some((p) => p.id === me.id))
+                ? () => setPassando(detail)
+                : undefined
+            }
             secundarias={[
-              detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir || (detail.sharedWith ?? []).some((p) => p.id === me.id)) && { label: 'Passar para outro técnico', icone: <ArrowRightLeft size={13} />, onClick: () => setPassando(detail) },
               detail.assigneeId && !doneKeys.has(detail.status) && (ehMeu(detail) || canCorrigir) && { label: 'Devolver à fila', icone: <Undo2 size={13} />, onClick: () => devolver(detail) },
               canManage && podeMexer(detail) && { label: 'Editar dados', icone: <Pencil size={13} />, onClick: () => { const d = detail; closeDetail(); openEdit(d) } },
               podeCancelar(detail) && !podeExcluir(detail) && { label: 'Cancelar chamado', icone: <Ban size={13} />, perigo: true, onClick: () => setCanceling(detail) },
@@ -748,13 +757,15 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCompartilhar, onEditarAtendimento, secundarias }: {
+function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCompartilhar, onPassar, onEditarAtendimento, secundarias }: {
   t: Ticket
   labelOf: (k: string) => string
   concluido: boolean
   onRefresh: () => void
   podeAtender: boolean
   podeCompartilhar: boolean
+  /** Passar o chamado para outro técnico — fica junto do compartilhar, é o mesmo assunto. */
+  onPassar?: () => void
   onEditarAtendimento: () => void
   /** Ações que não cabem no rodapé: editar dados, arquivar, cancelar, excluir. */
   secundarias: ({ label: string; icone: React.ReactNode; onClick: () => void; perigo?: boolean } | false | undefined)[]
@@ -768,6 +779,12 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   const noChamado = t.createdById === me?.id || t.assigneeId === me?.id || (t.sharedWith ?? []).some((s) => s.id === me?.id)
   const acoes = secundarias.filter(Boolean) as { label: string; icone: React.ReactNode; onClick: () => void; perigo?: boolean }[]
   const emAtendimento = !!t.assigneeId
+
+  const botaoPassar = onPassar ? (
+    <Button size="sm" variant="subtle" onClick={onPassar}>
+      <ArrowRightLeft size={12} /> Passar para outro técnico
+    </Button>
+  ) : null
 
   return (
     <div className="space-y-4 text-sm">
@@ -831,7 +848,15 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
         <PhotoInput photos={t.photos ?? []} />
       </div>
 
-      {podeCompartilhar && <CompartilharChamado t={t} onSaved={onRefresh} />}
+      {/* Gente no chamado: quem está junto e para quem ele passa — o mesmo assunto, a
+          mesma linha. */}
+      {(podeCompartilhar || onPassar) && (
+        podeCompartilhar ? (
+          <CompartilharChamado t={t} onSaved={onRefresh} aoLado={onPassar && botaoPassar} />
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">{botaoPassar}</div>
+        )
+      )}
 
       {/* Atendimento só existe depois que alguém pega o chamado — na fila ele seria uma
           caixa vazia pedindo dados que ninguém pode preencher ainda. */}
