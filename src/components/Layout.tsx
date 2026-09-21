@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2, CloudOff } from 'lucide-react'
+import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2, CloudOff, CircleHelp } from 'lucide-react'
 import { cn, iniciais } from '@/lib/utils'
 import { useStore, useCurrentUser, useCurrentRole, usePerms } from '@/lib/store'
 import { assetUrl } from '@/lib/api'
@@ -33,6 +33,8 @@ const MORE_LINKS: NavItem[] = [
   { to: '/usuarios', label: 'Usuários', menuLabel: 'Usuários e permissões', icon: Users, perm: 'ver_usuarios' },
   { to: '/auditoria', label: 'Auditoria', menuLabel: 'Auditoria (logs)', icon: ScrollText, perm: 'ver_auditoria' },
   { to: '/configuracoes', label: 'Configurações', icon: Settings },
+  // Sem `perm`: a ajuda é de todos. O que muda é o conteúdo dela, não o acesso.
+  { to: '/ajuda', label: 'Como funciona', menuLabel: 'Como funciona o app', icon: CircleHelp },
 ]
 
 const allowed = (items: NavItem[], perms: Set<string>) => items.filter((i) => !i.perm || perms.has(i.perm))

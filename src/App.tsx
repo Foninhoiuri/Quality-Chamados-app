@@ -15,6 +15,7 @@ import Locais from './pages/Locais'
 import Usuarios from './pages/Usuarios'
 import Auditoria from './pages/Auditoria'
 import Configuracoes from './pages/Configuracoes'
+import Ajuda from './pages/Ajuda'
 
 /** Guarda de rota: URL digitada à mão sem permissão mostra "sem acesso" em vez de tela vazia. */
 function Guarded({ perm, children }: { perm: string; children: ReactElement }) {
@@ -106,6 +107,8 @@ export default function App() {
         <Route path="/usuarios" element={<Guarded perm="ver_usuarios"><Usuarios /></Guarded>} />
         <Route path="/auditoria" element={<Guarded perm="ver_auditoria"><Auditoria /></Guarded>} />
         <Route path="/configuracoes" element={<Configuracoes />} />
+        {/* Sem guarda: a ajuda existe para todo mundo — quem filtra o conteúdo é a permissão. */}
+        <Route path="/ajuda" element={<Ajuda />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

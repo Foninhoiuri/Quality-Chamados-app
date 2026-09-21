@@ -5,6 +5,23 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 21/09/2026 — ajuda dentro do app: "Como funciona"
+
+No menu da conta agora existe **Como funciona o app**: um manual em texto, dividido por
+tela, que explica o que cada função faz e o caminho para usá-la — com passo a passo onde
+faz diferença e o aviso do detalhe que costuma pegar as pessoas de surpresa.
+
+**A ajuda é recortada pela permissão de quem lê.** Quem não pode concluir chamado não lê
+sobre conclusão; quem não mexe em coluna não lê sobre coluna. Explicar botão que a pessoa
+não tem só gera pedido de permissão que ninguém queria dar. Tem busca (sem acento, sem
+caixa) e um selo do seu perfil, que é o que explica o vizinho ver um tópico a mais.
+
+Nesta primeira versão estão os chamados: **o caminho do chamado** (por que ele muda de
+tela) e as três telas — **Abertos**, **Em andamento** e **Concluídos**. As outras telas
+entram em seguida; o conteúdo mora em `src/lib/ajuda.ts`, separado do componente.
+
+---
+
 ## 21/09/2026 — ajustes de tela: ponto no rodapé, passar o bastão e foto do perfil
 
 - **"Cheguei agora" no rodapé do chamado**, no lugar do botão "Atendimento": marcar a hora

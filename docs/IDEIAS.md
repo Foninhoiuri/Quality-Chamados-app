@@ -105,6 +105,16 @@ reaproveitando o CEP para o pino do mapa.
 **Proposta:** com a permissão de localização, comparar a posição com o pino do local e
 registrar a distância na ida — vira prova quando o relatório de horas é cobrado.
 
+### 13. Terminar a ajuda "Como funciona"
+
+**Feito:** o menu da conta abre a ajuda, filtrada pela permissão de quem lê, com as três
+telas de chamado (Abertos, Em andamento, Concluídos) e o caminho que liga as três.
+
+**Falta:** escrever as seções de Registros, Locais, Relatórios, Usuários e permissões,
+Dashboard e Configurações, no mesmo formato (`src/lib/ajuda.ts` — texto, passos e nota,
+cada tópico com a permissão que o faz existir). Depois disso, vale um atalho de ajuda
+dentro de cada tela, levando direto à seção dela.
+
 ---
 
 ## Reincidência: identificar e contabilizar problema que volta
