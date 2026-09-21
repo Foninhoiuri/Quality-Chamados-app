@@ -454,9 +454,11 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
                     </div>
                   </div>
 
+                  {/* Alinhado pelo TOPO: a dica de formato ("1:30 ou 1,5") fica embaixo de
+                      um dos campos e, com `items-end`, empurrava o vizinho para cima. */}
                   {v.modo === 'horario' ? (
                     // Cada ponto com a sua data: a saída pode ser no dia seguinte.
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
                       <Field label="Cheguei">
                         <div className="flex gap-1">
                           <Input type="datetime-local" value={v.chegada} max={agoraLocal()} onChange={(e) => setVisita(i, { chegada: e.target.value })} />
@@ -471,7 +473,7 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
                       </Field>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 items-end gap-2">
+                    <div className="grid grid-cols-2 items-start gap-2">
                       <Field label="Dia"><Input type="date" value={dia(v.chegada) || ''} max={agoraLocal().slice(0, 10)} onChange={(e) => setVisita(i, { chegada: e.target.value ? `${e.target.value}T12:00` : '' })} /></Field>
                       <Field label="Quanto tempo" hint="1:30 ou 1,5">
                         <Input inputMode="decimal" value={v.duracao} placeholder="1:30" onChange={(e) => setVisita(i, { duracao: e.target.value })} />
@@ -526,7 +528,7 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
           <div className="mb-1 text-xs font-medium text-slate-400">Itens trocados ou comprados</div>
           <div className="space-y-1.5">
             {form.itens.map((it, i) => (
-              <div key={it.id ?? `n${i}`} className="grid grid-cols-[1fr_auto] items-end gap-1.5 rounded-md border border-slate-800 p-2 sm:grid-cols-[2fr_0.6fr_1fr_0.9fr_auto]">
+              <div key={it.id ?? `n${i}`} className="grid grid-cols-[1fr_auto] items-start gap-1.5 rounded-md border border-slate-800 p-2 sm:grid-cols-[2fr_0.6fr_1fr_0.9fr_auto]">
                 <div className="col-span-2 sm:col-span-1"><Field label="Descrição"><Input value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder="Ex.: Fonte 12V 5A" /></Field></div>
                 <Field label="Qtd."><Input inputMode="decimal" value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value })} /></Field>
                 <Field label="Tipo">
@@ -536,7 +538,7 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
                   </Select>
                 </Field>
                 <Field label="Valor un. (R$)"><Input inputMode="decimal" value={it.valor} onChange={(e) => setItem(i, { valor: e.target.value })} placeholder="opcional" /></Field>
-                <button type="button" onClick={() => setForm({ ...form, itens: form.itens.filter((_, j) => j !== i) })} className="mb-1 justify-self-end rounded p-1.5 text-slate-500 hover:bg-red-500/10 hover:text-red-400" aria-label="Remover item"><Trash2 size={14} /></button>
+                <button type="button" onClick={() => setForm({ ...form, itens: form.itens.filter((_, j) => j !== i) })} className="mt-5 justify-self-end rounded p-1.5 text-slate-500 hover:bg-red-500/10 hover:text-red-400" aria-label="Remover item"><Trash2 size={14} /></button>
               </div>
             ))}
           </div>
