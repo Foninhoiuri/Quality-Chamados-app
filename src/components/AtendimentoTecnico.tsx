@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Wrench, Plus, Trash2, Save, Loader2, Clock, Package, Pencil, LogIn, LogOut, History, ArrowRightLeft, ChevronRight } from 'lucide-react'
 import { Button, Field, Input, Modal, Select, Textarea } from './ui'
 import { PhotoInput } from './PhotoInput'
@@ -213,35 +213,6 @@ export function usarPonto(t: Ticket, onSalvo?: () => void) {
 }
 
 /**
- * O BLOCO DO PONTO: o botão grande que alterna chegada/saída, com a hora da chegada
- * embaixo. Vive onde o técnico trabalha — dentro do atendimento. No chamado ele aparece
- * só como atalho no rodapé (`BotaoPonto`), e o corpo do chamado fica sendo o resumo.
- */
-export function PontoDoTecnico({ t, onSalvo }: { t: Ticket; onSalvo?: () => void }) {
-  const { emAndamento, marcando, marcarPonto } = usarPonto(t, onSalvo)
-  return (
-    <div>
-      {/* Um botão que alterna — nunca dois botões de chegada na mesma tela. */}
-      <button
-        onClick={marcarPonto}
-        disabled={marcando}
-        className={`flex w-full items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold disabled:opacity-60 ${
-          emAndamento ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700'
-        }`}
-      >
-        {marcando ? <Loader2 size={16} className="animate-spin" /> : emAndamento ? <LogOut size={16} /> : <LogIn size={16} />}
-        {emAndamento ? 'Marcar minha saída agora' : 'Marcar minha chegada agora'}
-      </button>
-      {emAndamento && (
-        <p className="mt-1.5 text-center text-[11px] text-emerald-300/80">
-          no local desde {dataHoraCurta(`${emAndamento.data}T${emAndamento.inicio}`)}
-        </p>
-      )}
-    </div>
-  )
-}
-
-/**
  * O ponto no rodapé do chamado: quem chegou no local marca a hora sem abrir o atendimento
  * — é o que mais se faz com o celular na mão, e era o que estava mais longe.
  */
@@ -388,10 +359,16 @@ export function AtendimentoTecnico({ t, podeEditar, onEditar, onSalvo }: {
  * registrar o que foi feito. Concluir o chamado é botão do chamado, não daqui — dois
  * botões parecidos no mesmo rodapé faziam pensar que eram a mesma coisa.
  */
-export function ModalAtendimento({ t, onFechar, onSalvo }: {
+export function ModalAtendimento({ t, onFechar, onSalvo, equipe: acoesDeEquipe }: {
   t: Ticket
   onFechar: () => void
   onSalvo: () => void
+  /**
+   * Quem está no chamado: compartilhar e passar adiante. Vem pronto de fora (é assunto do
+   * chamado, não do formulário) e fica no rodapé do conteúdo, sem destaque — usa-se uma
+   * vez por chamado, não uma vez por parafuso.
+   */
+  equipe?: ReactNode
 }) {
   const showToast = useStore((s) => s.showToast)
   const [form, setForm] = useState(() => paraForm(t))
@@ -413,6 +390,7 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assinatura])
 
+  const { emAndamento } = usarPonto(t)
   const totalForm = form.visitas.reduce((s, v) => s + (minutosDe(v) ?? 0), 0)
   const preenchidos = [form.analise, form.possivelSolucao, form.acoesTomadas].filter((x) => x.trim()).length
   /** Quem pode assinar uma ida: o responsável e quem está junto. Cada ida é de um só. */
@@ -481,17 +459,27 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
         </div>
       }
       tituloTexto={`Atendimento do ${t.code}`}
-      fechar="Cancelar"
+      fechar={null}
       footer={
-        <Button onClick={salvar} disabled={saving}>
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Salvar atendimento
-        </Button>
+        <>
+          {/* O ponto mora no rodapé: é o botão que se aperta com uma mão, no portão, sem
+              procurar onde o formulário parou de rolar. */}
+          <BotaoPonto t={t} onSalvo={onSalvo} />
+          <Button variant="subtle" className="sm:order-first" onClick={onFechar}>Cancelar</Button>
+          <Button onClick={salvar} disabled={saving}>
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Salvar atendimento
+          </Button>
+        </>
       }
     >
       <div className="space-y-4">
-        {/* O ponto abre o atendimento: é o primeiro gesto de quem chega no local, e a
-            ida marcada aqui já aparece na lista logo abaixo. */}
-        <PontoDoTecnico t={t} onSalvo={onSalvo} />
+        {/* A hora da chegada, para quem já está no local. O botão que marca fica no
+            rodapé, parado onde o polegar alcança enquanto o formulário rola. */}
+        {emAndamento && (
+          <p className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300">
+            <LogIn size={11} /> no local desde {dataHoraCurta(`${emAndamento.data}T${emAndamento.inicio}`)}
+          </p>
+        )}
 
         {/*
           AS IDAS FICAM GUARDADAS. Quem está em campo resolve tudo no botão de cima; esta
@@ -679,6 +667,10 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
             <Plus size={14} /> Adicionar item
           </button>
         </div>
+
+        {acoesDeEquipe && (
+          <div className="border-t border-slate-800 pt-3">{acoesDeEquipe}</div>
+        )}
 
         {!!t.historico?.length && (
           <div className="border-t border-slate-800 pt-3">

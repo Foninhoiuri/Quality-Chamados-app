@@ -5,6 +5,20 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — rodapé do atendimento, troca de técnico no cartão e caixas de texto que crescem
+
+- **O botão de chegada/saída ficou fixo no rodapé do atendimento**, parado onde o polegar
+  alcança enquanto o formulário rola. No alto sobra a etiqueta "no local desde…".
+- **Compartilhar e passar o chamado também dentro do atendimento**, no fim e sem destaque:
+  é assunto de uma vez por chamado, não de uma vez por parafuso.
+- **Trocar de técnico direto do cartão** de Em andamento, sem abrir o chamado.
+- **As caixas de texto crescem sozinhas.** No celular nascem com **uma linha** e vão
+  crescendo enquanto se escreve, até a altura antiga — daí em diante rolam por dentro.
+  Ninguém arrasta o cantinho de uma caixa no celular, e quatro campos de texto abertos
+  ocupavam três telas. No computador elas nascem do tamanho de antes e só aumentam.
+
+---
+
 ## 22/09/2026 — o atendimento virou a tela do técnico
 
 O chamado em andamento passa a ser **resumo**; quem trabalha trabalha dentro do

@@ -395,6 +395,12 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             onDelete={() => setDeleting(t)}
             onCancel={() => setCanceling(t)}
             onMover={fase === 'andamento' && canManage && colunas.length > 1 ? () => setMovendo(t) : undefined}
+            // Trocar de técnico sem abrir o chamado: o cartão é onde a fila é olhada.
+            onPassar={
+              fase === 'andamento' && !!t.assigneeId && podeMexer(t) && (ehMeu(t) || canCorrigir || (t.sharedWith ?? []).some((p) => p.id === me.id))
+                ? () => setPassando(t)
+                : undefined
+            }
             // Preencher o atendimento é o que o técnico mais faz — do cartão, num toque.
             onAtender={
               fase === 'andamento' && canAtender && !!t.assigneeId && podeMexer(t) && (ehMeu(t) || canCorrigir)
@@ -794,13 +800,31 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         />
       )}
 
-      {atendendo && (
-        <ModalAtendimento
-          t={tickets.find((x) => x.id === atendendo.id) ?? detail ?? atendendo}
-          onFechar={() => setAtendendo(null)}
-          onSalvo={recarregarDetalhe}
-        />
-      )}
+      {atendendo && (() => {
+        const alvo = tickets.find((x) => x.id === atendendo.id) ?? detail ?? atendendo
+        const podeTrocar = !!alvo.assigneeId && !doneKeys.has(alvo.status) && (ehMeu(alvo) || canCorrigir || (alvo.sharedWith ?? []).some((p) => p.id === me.id))
+        const passar = podeTrocar ? (
+          <Button size="sm" variant="subtle" onClick={() => setPassando(alvo)}>
+            <ArrowRightLeft size={12} /> Passar para outro técnico
+          </Button>
+        ) : null
+        return (
+          <ModalAtendimento
+            t={alvo}
+            onFechar={() => setAtendendo(null)}
+            onSalvo={recarregarDetalhe}
+            // Quem está junto e para quem o chamado passa: mesmo bloco do chamado, aqui
+            // sem destaque — o técnico está aqui para escrever o atendimento.
+            equipe={
+              canShare && !!alvo.assigneeId && !doneKeys.has(alvo.status) && (ehMeu(alvo) || canCorrigir) ? (
+                <CompartilharChamado t={alvo} onSaved={recarregarDetalhe} aoLado={passar} />
+              ) : passar ? (
+                <div className="flex flex-wrap items-center gap-2">{passar}</div>
+              ) : undefined
+            }
+          />
+        )
+      })()}
 
       {/* Só depois de procurar no servidor é que o chamado realmente não existe. */}
       {detailId && !detail && !buscandoDetalhe && tickets.length > 0 && (
@@ -969,7 +993,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onAtender, onChat, onDetail }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onAtender, onPassar, onChat, onDetail }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
@@ -984,6 +1008,8 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
   onMover?: () => void
   /** Abre o atendimento direto do cartão: é o que o técnico faz o dia inteiro. */
   onAtender?: () => void
+  /** Passar o chamado adiante sem abrir nada — a troca acontece olhando o quadro. */
+  onPassar?: () => void
   /** Abre a conversa do chamado — sem precisar pegar o chamado nem abrir o detalhe. */
   onChat: () => void
   onDetail: () => void
@@ -1014,8 +1040,13 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
           </div>
           <div className="mt-0.5 truncate text-sm font-medium text-slate-100">{t.title}</div>
         </div>
-        {(canManage || canDelete || canCancel) && (
+        {(canManage || canDelete || canCancel || onPassar) && (
           <div className="flex shrink-0 items-center gap-0.5">
+            {onPassar && (
+              <button onClick={stop(onPassar)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Passar para outro técnico">
+                <ArrowRightLeft size={14} />
+              </button>
+            )}
             {onMover && (
               <button onClick={stop(onMover)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200 md:hidden" title="Mover para outra coluna">
                 <MoveRight size={14} />

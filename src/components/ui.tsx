@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, KeyboardEvent, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useMobile } from '@/lib/useMediaQuery'
 import { MoreVertical, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -157,11 +158,51 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   )
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+/**
+ * CAIXA DE TEXTO QUE CRESCE SOZINHA.
+ *
+ * No celular ninguém arrasta o cantinho para aumentar a caixa: ela nasce com UMA linha e
+ * vai crescendo enquanto se escreve, até a altura de `rows` — daí em diante rola por
+ * dentro, que é o gesto que o dedo conhece. Assim um formulário com quatro campos de
+ * texto não nasce ocupando três telas.
+ *
+ * No computador a caixa nasce com `rows` linhas e só cresce: arrastar existe, mas ninguém
+ * deveria precisar.
+ */
+export function Textarea({ className, rows = 3, onInput, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const mobile = useMobile()
+
+  const ajustar = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const cs = getComputedStyle(el)
+    const linha = parseFloat(cs.lineHeight) || 20
+    const folga =
+      parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
+      parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
+    const bordas = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
+    const minimo = linha * (mobile ? 1 : rows) + folga
+    const teto = mobile ? linha * rows + folga : Number.POSITIVE_INFINITY
+    // `auto` primeiro: sem isso o `scrollHeight` nunca diminui quando o texto é apagado.
+    el.style.height = 'auto'
+    const conteudo = el.scrollHeight + bordas
+    const altura = Math.max(minimo, Math.min(conteudo, teto))
+    el.style.height = `${altura}px`
+    el.style.overflowY = conteudo > altura + 1 ? 'auto' : 'hidden'
+  }, [mobile, rows])
+
+  // Vale na montagem, quando o valor muda de fora (edição abrindo com texto pronto) e
+  // quando a tela troca de largura.
+  useLayoutEffect(ajustar, [ajustar, props.value, props.defaultValue])
+
   return (
     <textarea
+      ref={ref}
+      rows={mobile ? 1 : rows}
+      onInput={(e) => { ajustar(); onInput?.(e) }}
       className={cn(
-        'w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-red-500',
+        'w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-red-500 sm:resize-y',
         className,
       )}
       {...props}
