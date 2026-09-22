@@ -359,3 +359,39 @@ describe('escopo e visibilidade', () => {
     expect(res.statusCode).toBe(401)
   })
 })
+
+describe('tipos de local', () => {
+  it('quem cuida dos locais edita a lista; o técnico, não', async () => {
+    const lista = JSON.stringify([{ key: 'condominio', label: 'Condomínio', color: '#38bdf8' }])
+    const semPermissao = await app.inject({
+      method: 'PATCH', url: '/settings/local_tipos', headers: comToken(tecnico), payload: { value: lista },
+    })
+    expect(semPermissao.statusCode).toBe(403)
+
+    const ok = await app.inject({
+      method: 'PATCH', url: '/settings/local_tipos', headers: comToken(admin), payload: { value: lista },
+    })
+    expect(ok.statusCode).toBe(200)
+  })
+
+  it('tipo apagado deixa o local SEM tipo — nunca com a etiqueta errada', async () => {
+    await app.inject({
+      method: 'PATCH', url: '/settings/local_tipos', headers: comToken(admin),
+      payload: { value: JSON.stringify([{ key: 'obra', label: 'Obra', color: '#f472b6' }, { key: 'loja', label: 'Loja', color: '#fbbf24' }]) },
+    })
+    const criado = await app.inject({
+      method: 'POST', url: '/locais', headers: comToken(admin), payload: { name: 'Galpão da Vila', tipo: 'loja' },
+    })
+    expect(criado.statusCode).toBe(200)
+    const id = criado.json().id
+    expect(criado.json().tipo).toBe('loja')
+
+    // "Loja" sai da lista: o local não pode virar "Obra" só porque sobrou uma etiqueta.
+    await app.inject({
+      method: 'PATCH', url: '/settings/local_tipos', headers: comToken(admin),
+      payload: { value: JSON.stringify([{ key: 'obra', label: 'Obra', color: '#f472b6' }]) },
+    })
+    const depois = await prisma.local.findUnique({ where: { id } })
+    expect(depois.tipo).toBe('')
+  })
+})

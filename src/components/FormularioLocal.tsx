@@ -3,10 +3,14 @@ import { Loader2, MapPin, Plus, Crosshair, X } from 'lucide-react'
 import { Button, Field, FieldBox, Input, Textarea } from './ui'
 import { BuscaEndereco } from './EnderecoPicker'
 import { api } from '@/lib/api'
+import { useStore } from '@/lib/store'
+import { parseTiposLocal } from '@/lib/locais'
 
 export interface LocalForm {
   code: string
   name: string
+  /** Etiqueta do local — a lista é editável na tela de Locais. */
+  tipo: string
   cep: string
   address: string
   city: string
@@ -15,7 +19,7 @@ export interface LocalForm {
   lng: number | null
 }
 
-export const LOCAL_VAZIO: LocalForm = { code: '', name: '', cep: '', address: '', city: '', note: '', lat: null, lng: null }
+export const LOCAL_VAZIO: LocalForm = { code: '', name: '', tipo: '', cep: '', address: '', city: '', note: '', lat: null, lng: null }
 
 const soDigitos = (v: string) => v.replace(/\D/g, '')
 const formatarCep = (v: string) => {
@@ -35,6 +39,7 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
   /** Abre o mapa com o pino no meio, para o ajuste fino. */
   onAbrirMapa?: () => void
 }) {
+  const tipos = parseTiposLocal(useStore((s) => s.settings))
   const [buscando, setBuscando] = useState(false)
   const [erroCep, setErroCep] = useState<string | null>(null)
   // Endereço aberto: ou já veio preenchido (edição), ou o CEP acabou de trazer.
@@ -66,6 +71,33 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
           <Field label="Nome"><Input value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} placeholder="Ex.: Condomínio Jardim" autoFocus /></Field>
         </div>
       </div>
+
+      {/* Tipo em pílulas, não em lista suspensa: são poucos e o toque é direto. Nenhum
+          selecionado é uma resposta válida — nem todo lugar se encaixa numa etiqueta. */}
+      {tipos.length > 0 && (
+        <FieldBox label="Tipo" hint="opcional — some do cartão quando não tem">
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Tipo do local">
+            {tipos.map((t) => {
+              const on = form.tipo === t.key
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => onChange({ ...form, tipo: on ? '' : t.key })}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px]"
+                  style={on
+                    ? { color: t.color, background: `${t.color}1e`, borderColor: `${t.color}66` }
+                    : { color: '#94a3b8', borderColor: '#334155' }}
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ background: t.color }} /> {t.label}
+                </button>
+              )
+            })}
+          </div>
+        </FieldBox>
+      )}
 
       <FieldBox label="CEP" hint="digite o CEP e o endereço vem preenchido">
         <div className="flex items-center gap-2">

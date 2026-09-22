@@ -1,22 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, Building2, User as UserIcon, Pencil, Trash2, Ticket, Loader2, Phone, Tags, X, GripVertical, FileText, Download } from 'lucide-react'
+import { Plus, Search, Building2, User as UserIcon, Pencil, Trash2, Ticket, Loader2, Phone, Tags, FileText, Download } from 'lucide-react'
 import { Button, EmptyState, Field, FieldBox, Input, Modal, PageHeader, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
+import { GerenciarLista } from '@/components/GerenciarLista'
 import { api } from '@/lib/api'
-import { CORES_CATEGORIA, parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
+import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { paraInputLocal } from '@/lib/tickets'
 import { LocalSelect } from '@/components/LocalSelect'
 import { AvatarPessoa } from '@/components/Pessoa'
-import type { Registro, TipoRegistro, TipoRegistroDef } from '@/lib/types'
+import type { Registro, TipoRegistro } from '@/lib/types'
 
 interface RForm { tipo: TipoRegistro; ocorridoEm: string; solicitante: string; titulo: string; descricao: string; localId: string }
 const agoraLocal = () => paraInputLocal(new Date().toISOString())
 const vazio = (tipo: string, localId = ''): RForm => ({ tipo, ocorridoEm: agoraLocal(), solicitante: '', titulo: '', descricao: '', localId })
-
-function slugify(s: string) {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-}
 
 type Periodo = '7' | '30' | '90'
 
@@ -264,9 +261,13 @@ export default function Registros() {
       </Modal>
 
       {gerenciando && (
-        <GerenciarCategorias
-          tipos={tipos}
+        <GerenciarLista
+          titulo="Categorias de registro"
+          ajuda="A primeira da lista é a que já vem marcada num registro novo. Arraste pela alça para reordenar."
+          placeholder="Nova categoria (ex.: Manutenção)"
+          itens={tipos}
           contagem={(itens ?? []).reduce<Record<string, number>>((acc, r) => { acc[r.tipo] = (acc[r.tipo] ?? 0) + 1; return acc }, {})}
+          aviso={(quantos, nomes, primeiro) => `${quantos} registro(s) em ${nomes} passam para "${primeiro}" ao salvar. Nenhum registro é apagado.`}
           onClose={() => setGerenciando(false)}
           onSave={async (list) => {
             try {
@@ -303,90 +304,3 @@ export default function Registros() {
  * da lista é a que vem marcada num registro novo. Categoria apagada não apaga registro —
  * o que estava nela passa para a primeira.
  */
-function GerenciarCategorias({ tipos, contagem, onClose, onSave }: {
-  tipos: TipoRegistroDef[]
-  contagem: Record<string, number>
-  onClose: () => void
-  onSave: (list: TipoRegistroDef[]) => void
-}) {
-  const [list, setList] = useState<TipoRegistroDef[]>(tipos.map((t) => ({ ...t })))
-  const [label, setLabel] = useState('')
-  const [dragIdx, setDragIdx] = useState<number | null>(null)
-
-  function add() {
-    const l = label.trim()
-    if (!l) return
-    let key = slugify(l) || `cat-${list.length + 1}`
-    if (list.some((t) => t.key === key)) key = `${key}-${list.length + 1}`
-    setList([...list, { key, label: l, color: CORES_CATEGORIA[list.length % CORES_CATEGORIA.length] }])
-    setLabel('')
-  }
-  const troca = (i: number, p: Partial<TipoRegistroDef>) => setList(list.map((t, j) => (j === i ? { ...t, ...p } : t)))
-  function reorder(from: number, to: number) {
-    setList((l) => {
-      const c = [...l]
-      const [m] = c.splice(from, 1)
-      c.splice(to, 0, m)
-      return c
-    })
-  }
-
-  const somem = tipos.filter((t) => !list.some((x) => x.key === t.key) && (contagem[t.key] ?? 0) > 0)
-  const quantos = somem.reduce((n, t) => n + (contagem[t.key] ?? 0), 0)
-  const valido = list.length > 0 && list.every((t) => t.label.trim())
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Categorias de registro"
-      footer={<><Button variant="subtle" onClick={onClose}>Cancelar</Button><Button onClick={() => onSave(list)} disabled={!valido}>Salvar</Button></>}
-    >
-      <div className="space-y-3">
-        <p className="text-[11px] text-slate-500">A primeira da lista é a que já vem marcada num registro novo. Arraste pela alça para reordenar.</p>
-        <div className="space-y-1.5">
-          {list.map((t, i) => (
-            <div
-              key={t.key}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => { if (dragIdx !== null && dragIdx !== i) reorder(dragIdx, i); setDragIdx(null) }}
-              className={`flex items-center gap-2 rounded-lg border bg-slate-950/40 px-2 py-1.5 ${dragIdx === i ? 'border-red-600 opacity-60' : 'border-slate-800'}`}
-            >
-              <span
-                draggable
-                onDragStart={() => setDragIdx(i)}
-                onDragEnd={() => setDragIdx(null)}
-                className="shrink-0 cursor-grab text-slate-600 hover:text-slate-300 active:cursor-grabbing"
-                title="Arraste para reordenar"
-              >
-                <GripVertical size={16} />
-              </span>
-              <input
-                type="color"
-                value={t.color}
-                onChange={(e) => troca(i, { color: e.target.value })}
-                aria-label={`Cor de ${t.label}`}
-                title="Cor da categoria"
-                className="h-7 w-7 shrink-0 cursor-pointer rounded border border-slate-700 bg-transparent p-0.5"
-              />
-              <Input value={t.label} onChange={(e) => troca(i, { label: e.target.value })} className="flex-1" aria-label="Nome da categoria" />
-              {(contagem[t.key] ?? 0) > 0 && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">{contagem[t.key]}</span>}
-              {list.length > 1 && (
-                <button onClick={() => setList(list.filter((_, j) => j !== i))} className="shrink-0 rounded p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-400" title="Remover categoria"><X size={14} /></button>
-              )}
-            </div>
-          ))}
-        </div>
-        {quantos > 0 && (
-          <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200/90">
-            {quantos} registro(s) em {somem.map((t) => `"${t.label}"`).join(', ')} passam para <span className="font-medium">"{list[0]?.label}"</span> ao salvar. Nenhum registro é apagado.
-          </div>
-        )}
-        <div className="flex items-center gap-2">
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} placeholder="Nova categoria (ex.: Manutenção)" className="flex-1" />
-          <Button variant="subtle" onClick={add}><Plus size={15} /> Adicionar</Button>
-        </div>
-      </div>
-    </Modal>
-  )
-}

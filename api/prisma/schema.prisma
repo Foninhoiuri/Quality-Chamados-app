@@ -91,6 +91,9 @@ model Local {
   cep       String   @default("")
   phone     String   @default("")
   note      String   @default("")
+  // Etiqueta do local (condomínio, comercial…): chave de um dos tipos do setting
+  // `local_tipos`. Vazio é um estado legítimo — local antigo não tinha etiqueta.
+  tipo      String   @default("")
   // Coordenadas do pino no mapa. Vêm do endereço (geocodificação) ou digitadas à mão.
   lat       Float?
   lng       Float?

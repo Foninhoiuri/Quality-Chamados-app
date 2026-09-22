@@ -138,6 +138,8 @@ export interface Local {
   cep: string
   phone: string
   note: string
+  /** Etiqueta do local (chave de um dos `local_tipos`). Vazio = sem tipo. */
+  tipo?: string
   /** Coordenadas do pino no mapa — vêm do endereço, quando ele é encontrado. */
   lat?: number | null
   lng?: number | null

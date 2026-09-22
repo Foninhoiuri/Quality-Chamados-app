@@ -596,7 +596,7 @@ app.get('/uploads/:name', async (req: any, reply) => {
 
 // ----------------------------- locais -----------------------------
 
-const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'cep', 'phone', 'note'] as const
+const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'cep', 'phone', 'note', 'tipo'] as const
 
 /** Coordenada vinda do formulário (pino arrastado no mapa ou sugestão de endereço escolhida). */
 function lerCoordenada(b: any): { lat: number; lng: number } | null {
@@ -734,7 +734,7 @@ app.post('/locais', async (req: any, reply) => {
   const name = String(b.name ?? '').trim()
   if (!name) return reply.code(400).send({ error: 'informe o nome do local' })
   const data: any = { code: String(b.code ?? '').trim() || (await nextLocalCode()), name }
-  for (const k of ['city', 'address', 'cep', 'phone', 'note'] as const) if (k in b) data[k] = String(b[k] ?? '')
+  for (const k of ['city', 'address', 'cep', 'phone', 'note', 'tipo'] as const) if (k in b) data[k] = String(b[k] ?? '')
   // Coordenada que veio do formulário manda; só sem ela o endereço é geocodificado.
   const coord = lerCoordenada(b) ?? (await geocodificar(data))
   if (coord) { data.lat = coord.lat; data.lng = coord.lng }
@@ -1961,14 +1961,17 @@ app.get('/settings', async (req: any, reply) => {
   return Object.fromEntries(rows.filter((s) => !s.key.startsWith('vapid_')).map((s) => [s.key, s.value]))
 })
 
-const SETTINGS_EDITAVEIS = new Set(['ticket_statuses', 'registro_tipos'])
+const SETTINGS_EDITAVEIS = new Set(['ticket_statuses', 'registro_tipos', 'local_tipos'])
 
 app.patch('/settings/:key', async (req: any, reply) => {
   const u = await requireAuth(req, reply)
   if (!u) return
   const key = String(req.params.key)
   if (!SETTINGS_EDITAVEIS.has(key)) return reply.code(400).send({ error: 'configuração desconhecida' })
-  if (!u.perms.has('gerenciar_status_chamados')) return reply.code(403).send({ error: 'sem permissão' })
+  // Os tipos de local são de quem cuida dos locais; as colunas e as categorias, de quem
+  // cuida do quadro. Cada lista pertence a quem administra a tela dela.
+  const permissaoDaLista = key === 'local_tipos' ? 'gerenciar_locais' : 'gerenciar_status_chamados'
+  if (!u.perms.has(permissaoDaLista)) return reply.code(403).send({ error: 'sem permissão' })
   let value = String(req.body?.value ?? '')
 
   if (key === 'registro_tipos') {
@@ -1988,6 +1991,30 @@ app.patch('/settings/:key', async (req: any, reply) => {
     if (orfaos) {
       await prisma.registro.updateMany({ where: { tipo: { notIn: chaves } }, data: { tipo: list[0].key } })
       await audit(u, 'editar', 'registro', `${orfaos} registro(s)`, undefined, `Categoria removida — movidos para "${list[0].label}"`)
+    }
+  }
+
+  /**
+   * TIPOS DE LOCAL: a etiqueta do cadastro (condomínio, comercial, obra…). Tipo apagado
+   * não leva o local junto — o local só fica sem etiqueta, que é um estado legítimo.
+   * Marcar um local com a etiqueta errada seria pior do que não marcar.
+   */
+  if (key === 'local_tipos') {
+    let arr: any
+    try { arr = JSON.parse(value) } catch { return reply.code(400).send({ error: 'lista de tipos inválida (JSON)' }) }
+    if (!Array.isArray(arr)) return reply.code(400).send({ error: 'lista de tipos inválida' })
+    const list: TipoRegistroDef[] = arr.slice(0, 12).map((x: any) => ({
+      key: String(x.key ?? '').slice(0, 40),
+      label: String(x.label ?? '').trim().slice(0, 40),
+      color: /^#[0-9a-fA-F]{6}$/.test(String(x.color ?? '')) ? String(x.color) : '#a1a1aa',
+    }))
+    if (list.some((t) => !t.key || !t.label)) return reply.code(400).send({ error: 'todo tipo precisa de nome' })
+    value = JSON.stringify(list)
+    const chaves = list.map((t) => t.key)
+    const orfaos = await prisma.local.count({ where: { tipo: { notIn: ['', ...chaves] } } })
+    if (orfaos) {
+      await prisma.local.updateMany({ where: { tipo: { notIn: ['', ...chaves] } }, data: { tipo: '' } })
+      await audit(u, 'editar', 'local', `${orfaos} local(is)`, undefined, 'Tipo removido — ficaram sem tipo')
     }
   }
 

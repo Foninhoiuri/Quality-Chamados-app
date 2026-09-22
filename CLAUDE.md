@@ -61,6 +61,9 @@ Não edite o campo `version` à mão nem no meio de um commit — quem manda é 
 - **Compartilhar não divide o atendimento**: quem está junto (`sharedWith`) acompanha e é avisado;
   quem preenche análise, solução e itens continua sendo o responsável que pegou o chamado.
   A exceção é o PONTO: o apoio marca as próprias idas (e só as dele) — ele foi ao local.
+- **Tipo de local é opcional e nunca "chuta"**: ao apagar um tipo (`local_tipos`), os locais
+  dele ficam sem tipo — nada de mover para a primeira etiqueta, como fazem os registros.
+  Um local com a etiqueta errada mente; um local sem etiqueta, não.
 - **Cancelado só existe na auditoria**: o chamado some do quadro, do histórico, do dashboard e dos
   relatórios. A linha da auditoria é que guarda título, relato, quem abriu, quem cancelou e o motivo.
 - Data de abertura/conclusão só se edita com `ajustar_datas_chamado`. A exceção é o serviço já

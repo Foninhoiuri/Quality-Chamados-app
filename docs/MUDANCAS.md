@@ -5,6 +5,22 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — tipos de local
+
+Locais agora têm **tipo** — condomínio, comercial, residencial, obra — e a lista é editável
+na própria tela, em "Tipos de local" (três pontinhos, no celular), do mesmo jeito que as
+colunas de Em andamento e as categorias de registro: arrasta para reordenar, renomeia no
+lugar, escolhe a cor.
+
+A etiqueta aparece no cartão do local e vira filtro em cima da lista, com a contagem de
+cada uma. **Tipo é opcional**: local sem etiqueta é normal, e quando um tipo é apagado os
+locais dele ficam **sem tipo** — marcar com a etiqueta errada seria pior do que não marcar.
+
+Editar a lista pede a permissão de **criar e editar locais**: cada lista pertence a quem
+administra a tela dela.
+
+---
+
 ## 22/09/2026 — janela na frente, lista que atualiza sozinha e serviço já realizado completo
 
 ### A caixa de confirmação nascia atrás da janela

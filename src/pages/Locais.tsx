@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Pencil, Trash2, Search, MapPin, Ticket, Copy, Check, HandHelping, Hash, Map as MapIcon, List, Crosshair, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search, MapPin, Ticket, Copy, Check, HandHelping, Hash, Map as MapIcon, List, Crosshair, Loader2, Tags } from 'lucide-react'
 import { Button, Card, EmptyState, Modal, PageHeader } from '@/components/ui'
 import { SeletorPino } from '@/components/EnderecoPicker'
 import { FormularioLocal, LOCAL_VAZIO, type LocalForm } from '@/components/FormularioLocal'
@@ -8,6 +8,8 @@ import { useStore, useCan } from '@/lib/store'
 import { mapsUrl } from '@/components/LocalSelect'
 import { MapaLocais } from '@/components/MapaLocais'
 import { api } from '@/lib/api'
+import { GerenciarLista } from '@/components/GerenciarLista'
+import { parseTiposLocal, tipoLocalDe } from '@/lib/locais'
 import type { Local } from '@/lib/types'
 
 /** Botão de copiar do lado do dado — endereço e telefone existem para ir parar em outro app. */
@@ -76,6 +78,12 @@ export default function Locais() {
   // No celular não cabem lista e mapa lado a lado: alterna entre os dois.
   const [vista, setVista] = useState<'lista' | 'mapa'>('lista')
   const refreshLocais = useStore((s) => s.refreshLocais)
+  const settings = useStore((s) => s.settings)
+  const setSetting = useStore((s) => s.setSetting)
+  const tipos = useMemo(() => parseTiposLocal(settings), [settings])
+  const [gerenciando, setGerenciando] = useState(false)
+  /** Filtro por etiqueta: '' = todos, 'sem' = os que ficaram sem tipo. */
+  const [tipoFiltro, setTipoFiltro] = useState('')
 
   /** Tenta pelo endereço; não achando, o pino é marcado à mão no mapa. */
   async function localizar(l: Local) {
@@ -94,12 +102,22 @@ export default function Locais() {
 
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return t ? locais.filter((l) => `${l.code} ${l.name} ${l.city} ${l.address} ${l.cep ?? ''}`.toLowerCase().includes(t)) : locais
-  }, [locais, q])
+    return locais.filter((l) => {
+      if (tipoFiltro && (tipoFiltro === 'sem' ? !!l.tipo : l.tipo !== tipoFiltro)) return false
+      if (!t) return true
+      return `${l.code} ${l.name} ${l.city} ${l.address} ${l.cep ?? ''}`.toLowerCase().includes(t)
+    })
+  }, [locais, q, tipoFiltro])
+
+  /** Quantos locais usam cada etiqueta — o gerenciador avisa antes de apagar uma em uso. */
+  const contagemPorTipo = useMemo(
+    () => locais.reduce<Record<string, number>>((acc, l) => { if (l.tipo) acc[l.tipo] = (acc[l.tipo] ?? 0) + 1; return acc }, {}),
+    [locais],
+  )
 
   function openNew() { setForm(vazio); setEditing('new') }
   function openEdit(l: Local) {
-    setForm({ code: l.code, name: l.name, cep: l.cep ?? '', city: l.city, address: l.address, note: l.note, lat: l.lat ?? null, lng: l.lng ?? null })
+    setForm({ code: l.code, name: l.name, tipo: l.tipo ?? '', cep: l.cep ?? '', city: l.city, address: l.address, note: l.note, lat: l.lat ?? null, lng: l.lng ?? null })
     setEditing(l)
   }
   useEffect(() => {
@@ -129,6 +147,7 @@ export default function Locais() {
       <PageHeader
         title="Locais"
         subtitle={`${locais.length} local(is) — clientes, condomínios ou filiais atendidos`}
+        menu={[canManage && { label: 'Tipos de local', icon: <Tags size={15} />, onClick: () => setGerenciando(true) }]}
         actions={
           <>
             <div className="flex gap-0.5 rounded-lg border border-slate-800 bg-slate-900/50 p-0.5 lg:hidden">
@@ -148,9 +167,35 @@ export default function Locais() {
         }
       />
 
-      <div className="relative mb-4 max-w-xs">
-        <Search size={15} className="pointer-events-none absolute left-2.5 top-2.5 text-slate-500" />
-        <input data-busca value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar local…" aria-label="Buscar local" className="w-full rounded-lg border border-slate-700 bg-slate-900 py-1.5 pl-8 pr-3 text-sm text-slate-200 outline-none focus:border-red-500" />
+      <div className="mb-4 space-y-2">
+        <div className="relative max-w-xs">
+          <Search size={15} className="pointer-events-none absolute left-2.5 top-2.5 text-slate-500" />
+          <input data-busca value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar local…" aria-label="Buscar local" className="w-full rounded-lg border border-slate-700 bg-slate-900 py-1.5 pl-8 pr-3 text-sm text-slate-200 outline-none focus:border-red-500" />
+        </div>
+        {/* Filtro por etiqueta: só aparece quando há etiqueta em uso — linha de botões
+            vazia em cima da lista não ajuda ninguém. */}
+        {(tipos.length > 0 && locais.some((l) => l.tipo)) && (
+          <div className="flex flex-wrap gap-1.5">
+            {[{ key: '', label: 'Todos', color: '#94a3b8' }, ...tipos, { key: 'sem', label: 'Sem tipo', color: '#64748b' }].map((t) => {
+              const quantos = t.key === '' ? locais.length : t.key === 'sem' ? locais.filter((l) => !l.tipo).length : (contagemPorTipo[t.key] ?? 0)
+              if (t.key === 'sem' && quantos === 0) return null
+              const on = tipoFiltro === t.key
+              return (
+                <button
+                  key={t.key || 'todos'}
+                  onClick={() => setTipoFiltro(t.key)}
+                  aria-pressed={on}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px]"
+                  style={on
+                    ? { color: t.color, background: `${t.color}1e`, borderColor: `${t.color}66` }
+                    : { color: '#94a3b8', borderColor: '#334155' }}
+                >
+                  {t.label} <span className="tabular-nums opacity-70">{quantos}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Lista e mapa lado a lado a partir de lg; no celular, um de cada vez. */}
@@ -168,7 +213,15 @@ export default function Locais() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="font-mono text-[10px] text-slate-500">{l.code}</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-mono text-[10px] text-slate-500">{l.code}</span>
+                    {(() => {
+                      const t = tipoLocalDe(tipos, l.tipo)
+                      return t ? (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ color: t.color, background: `${t.color}1e` }}>{t.label}</span>
+                      ) : null
+                    })()}
+                  </div>
                   <div className="truncate font-medium text-slate-100">{l.name}</div>
                 </div>
                 {(canManage || canDelete) && (
@@ -263,6 +316,30 @@ export default function Locais() {
           </button>
         )}
       </Modal>
+
+      {gerenciando && (
+        <GerenciarLista
+          titulo="Tipos de local"
+          ajuda="A etiqueta que diz que lugar é este — condomínio, comercial, obra. Aparece no cartão e filtra a lista. Arraste pela alça para reordenar."
+          placeholder="Novo tipo (ex.: Galpão)"
+          itens={tipos}
+          contagem={contagemPorTipo}
+          permitirVazia
+          aviso={(quantos, nomes) => `${quantos} local(is) em ${nomes} ficam SEM tipo ao salvar. Nenhum local é apagado — e marcar com a etiqueta errada seria pior.`}
+          onClose={() => setGerenciando(false)}
+          onSave={async (list) => {
+            try {
+              await setSetting('local_tipos', JSON.stringify(list))
+              await refreshLocais()
+              setTipoFiltro('')
+              showToast('Tipos de local salvos')
+              setGerenciando(false)
+            } catch (e: any) {
+              showToast(e?.message ?? 'Não foi possível salvar os tipos')
+            }
+          }}
+        />
+      )}
 
       {marcandoLocal && (
         <SeletorPino
