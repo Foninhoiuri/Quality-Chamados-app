@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
 import { FileText, Loader2, Download, ChevronDown } from 'lucide-react'
 import { Card, PageHeader, Select, EmptyState } from '@/components/ui'
 import { useStore } from '@/lib/store'
@@ -245,15 +245,28 @@ export default function Relatorios() {
 
           <Secao titulo="Por dia">
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={dados.porDia} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
+              {/* O mesmo desenho do dashboard: quem olha os dois no mesmo dia não precisa
+                  reaprender a ler o gráfico. Ids de gradiente próprios para não
+                  esbarrar nos do dashboard. */}
+              <AreaChart data={dados.porDia} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gRelAb" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={SERIE.abertos.color} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={SERIE.abertos.color} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gRelCo" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={SERIE.concluidos.color} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={SERIE.concluidos.color} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                 <XAxis dataKey="dia" tick={axisTick} axisLine={{ stroke: gridStroke }} tickLine={false} interval={1} />
                 <YAxis tick={axisTick} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabel} itemStyle={tooltipItem} labelFormatter={(d) => `Dia ${d}`} cursor={{ fill: 'transparent' }} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabel} itemStyle={tooltipItem} labelFormatter={(d) => `Dia ${d}`} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar name={SERIE.abertos.label} dataKey="abertos" fill={SERIE.abertos.color} radius={[3, 3, 0, 0]} maxBarSize={10} />
-                <Bar name={SERIE.concluidos.label} dataKey="concluidos" fill={SERIE.concluidos.color} radius={[3, 3, 0, 0]} maxBarSize={10} />
-              </BarChart>
+                <Area type="monotone" name={SERIE.abertos.label} dataKey="abertos" stroke={SERIE.abertos.color} strokeWidth={2} fill="url(#gRelAb)" />
+                <Area type="monotone" name={SERIE.concluidos.label} dataKey="concluidos" stroke={SERIE.concluidos.color} strokeWidth={2} fill="url(#gRelCo)" />
+              </AreaChart>
             </ResponsiveContainer>
           </Secao>
 

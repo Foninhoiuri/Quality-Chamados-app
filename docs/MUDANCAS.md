@@ -5,6 +5,33 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — mapa de volta em produção, versão por commit e gráfico igual ao do painel
+
+### O mapa não carregava no servidor publicado
+
+Os mapas do OpenStreetMap chegam como imagens de `tile.openstreetmap.org`, e a política de
+segurança do nginx (`img-src`) só permitia imagens do próprio site — o mapa virava um
+retângulo vazio. Em desenvolvimento funcionava, porque ali não passa por esse nginx, e foi
+por isso que o problema resistiu.
+
+Junto: **"Centralizar em mim" voltou a funcionar** (a mesma política desligava a
+localização do site inteiro) e o painel passa a se identificar ao servidor de mapas, como
+a política de uso deles pede. **Precisa recriar a stack no Portainer** para o nginx pegar
+a configuração nova.
+
+### A versão sobe sozinha a cada commit
+
+Cada commit vale **0.1** (commit 10 = v1.0, commit 13 = v1.3) e o número é gravado antes
+do commit fechar. Nada de versão escrita à mão: o que aparece no rodapé do app é sempre o
+código que está rodando. Estamos na **v1.3**.
+
+### Gráfico do relatório igual ao do dashboard
+
+"Por dia" deixou de ser barras e virou a mesma área com degradê do painel — quem olha os
+dois no mesmo dia não precisa reaprender a ler o gráfico.
+
+---
+
 ## 21/09/2026 — ajuda dentro do app: "Como funciona"
 
 No menu da conta agora existe **Como funciona o app**: um manual em texto, dividido por

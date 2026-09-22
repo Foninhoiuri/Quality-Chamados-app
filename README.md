@@ -97,6 +97,16 @@ Cobrem o que quebra em silêncio: senha temporária, conclusão sem solução, c
 concluído fechado para edição, alcance do Gestor, cancelamento saindo dos relatórios e
 horas de chamado compartilhado sem duplicação.
 
+## Versão do app
+
+A versão sai da contagem de commits: **cada commit sobe 0.1** (commit 10 = v1.0, commit 13
+= v1.3). Quem grava é o hook `pre-commit` de `.githooks/`, que escreve nos dois
+`package.json` antes do commit fechar — o rodapé do app e o `/health` da API mostram
+sempre a versão do código que está rodando.
+
+O hook se instala sozinho no `npm install` (script `prepare`, que aponta o
+`core.hooksPath`). Para saber a versão de agora: `npm run versao`.
+
 ## Backup
 
 O serviço `backup` do `docker-compose.yml` copia o banco (`VACUUM INTO`) e as fotos uma vez

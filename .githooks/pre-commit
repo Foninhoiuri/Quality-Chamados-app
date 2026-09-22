@@ -1,0 +1,15 @@
+#!/bin/sh
+# Cada commit sobe o app em 0.1. O número sai da contagem de commits (scripts/versao.mjs),
+# então não existe arquivo de estado para desencontrar nem número escrito à mão.
+#
+# Instalado por `npm install` (script `prepare`, que aponta o core.hooksPath para cá).
+
+# `--amend` reescreve um commit que já existe: a contagem não muda, e somar 1 aqui
+# queimaria uma versão à toa.
+case "$(ps -o command= -p $PPID 2>/dev/null)" in
+  *--amend*) exit 0 ;;
+esac
+
+node scripts/versao.mjs --proxima --escrever || exit 1
+git add package.json api/package.json 2>/dev/null
+exit 0

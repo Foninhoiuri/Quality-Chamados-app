@@ -20,6 +20,12 @@ Este app nasceu da separação do módulo de chamados do Quality NOC e tem repos
 (github.com/Foninhoiuri/Quality-Chamados-app). Os dois são independentes: banco, API, portas e
 imagens Docker próprios. Mudanças aqui não devem exigir mudanças no NOC, e vice-versa.
 
+## Versão
+
+A versão do app é derivada do histórico: **cada commit vale 0.1** (`scripts/versao.mjs`), e
+o hook `pre-commit` de `.githooks/` grava nos dois `package.json` antes de o commit fechar.
+Não edite o campo `version` à mão nem no meio de um commit — quem manda é a contagem.
+
 ## Regras de negócio que não se quebram
 
 - Não existe prioridade, prazo/SLA nem atribuição de responsável. Chamado entra na fila; só o
