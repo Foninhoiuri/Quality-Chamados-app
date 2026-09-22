@@ -12,14 +12,17 @@ export interface LocalForm {
   /** Etiqueta do local — a lista é editável na tela de Locais. */
   tipo: string
   cep: string
+  /** A rua, sem o número: o número vai em `number` e o resto em `complement`. */
   address: string
+  number: string
+  complement: string
   city: string
   note: string
   lat: number | null
   lng: number | null
 }
 
-export const LOCAL_VAZIO: LocalForm = { code: '', name: '', tipo: '', cep: '', address: '', city: '', note: '', lat: null, lng: null }
+export const LOCAL_VAZIO: LocalForm = { code: '', name: '', tipo: '', cep: '', address: '', number: '', complement: '', city: '', note: '', lat: null, lng: null }
 
 const soDigitos = (v: string) => v.replace(/\D/g, '')
 const formatarCep = (v: string) => {
@@ -43,7 +46,7 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
   const [buscando, setBuscando] = useState(false)
   const [erroCep, setErroCep] = useState<string | null>(null)
   // Endereço aberto: ou já veio preenchido (edição), ou o CEP acabou de trazer.
-  const [enderecoAberto, setEnderecoAberto] = useState(!!form.address || !!form.city)
+  const [enderecoAberto, setEnderecoAberto] = useState(!!form.address || !!form.city || !!form.number)
   const [obsAberta, setObsAberta] = useState(!!form.note)
 
   async function buscarCep(valor: string) {
@@ -124,13 +127,22 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
 
       {enderecoAberto && (
         <>
-          <FieldBox label="Endereço" hint="rua e número — ou escolha uma sugestão, que já crava o pino">
+          {/* CEP, rua, número, cidade: cada um no seu campo. Com tudo junto numa linha só,
+              "Rua X 15 fundos" não é endereço para o mapa nem para o relatório — e o
+              número, que é o que o técnico procura no portão, some no meio do texto. */}
+          <FieldBox label="Rua" hint="ou escolha uma sugestão, que já crava o pino no mapa">
             <BuscaEndereco
               value={form.address}
               onChange={(v) => onChange({ ...form, address: v })}
               onEscolher={(s) => onChange({ ...form, address: s.address || s.descricao, city: s.city || form.city, lat: s.lat, lng: s.lng })}
             />
           </FieldBox>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Número"><Input value={form.number} onChange={(e) => onChange({ ...form, number: e.target.value })} placeholder="15" inputMode="numeric" /></Field>
+            <div className="col-span-2">
+              <Field label="Complemento" hint="opcional"><Input value={form.complement} onChange={(e) => onChange({ ...form, complement: e.target.value })} placeholder="Bloco B, fundos, sala 4…" /></Field>
+            </div>
+          </div>
           <Field label="Cidade"><Input value={form.city} onChange={(e) => onChange({ ...form, city: e.target.value })} placeholder="Cidade - UF" /></Field>
 
           {onAbrirMapa && (

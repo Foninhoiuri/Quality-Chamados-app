@@ -139,6 +139,9 @@ export interface Local {
   name: string
   city: string
   address: string
+  /** Número e complemento separados da rua: é assim que o mapa e o relatório leem. */
+  number: string
+  complement: string
   cep: string
   phone: string
   note: string

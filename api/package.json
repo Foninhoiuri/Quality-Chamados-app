@@ -1,10 +1,10 @@
 {
   "name": "quality-chamados-api",
   "private": true,
-  "version": "1.8.0",
+  "version": "1.9.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "NODE_OPTIONS=--use-bundled-ca tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "generate": "prisma generate",
     "db:push": "prisma db push",

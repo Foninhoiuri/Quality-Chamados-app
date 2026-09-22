@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 're
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useStore } from '@/lib/store'
+import { enderecoDoLocal } from '@/lib/locais'
 import type { Local } from '@/lib/types'
 
 /** Centro do Brasil: só serve enquanto não se sabe nada melhor. */
@@ -199,7 +200,7 @@ function Marcadores({ locais, selecionado, onSelecionar, eu }: {
               <Popup>
                 <div style={{ minWidth: 150 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{l.name}</div>
-                  {(l.address || l.city) && <div style={{ fontSize: 11, color: '#475569' }}>{[l.address, l.city].filter(Boolean).join(', ')}</div>}
+                  {(l.address || l.city) && <div style={{ fontSize: 11, color: '#475569' }}>{enderecoDoLocal(l, false)}</div>}
                   {l.cep && <div style={{ fontSize: 11, color: '#94a3b8' }}>CEP {l.cep}</div>}
                   <div style={{ marginTop: 6, fontSize: 12 }}>
                     <strong>{l.ticketsAtivos ?? 0}</strong> ativo(s) · <strong>{l.ticketsAndamento ?? 0}</strong> em andamento

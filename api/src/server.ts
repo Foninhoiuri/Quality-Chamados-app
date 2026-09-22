@@ -597,7 +597,7 @@ app.get('/uploads/:name', async (req: any, reply) => {
 
 // ----------------------------- locais -----------------------------
 
-const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'cep', 'phone', 'note', 'tipo'] as const
+const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'number', 'complement', 'cep', 'phone', 'note', 'tipo'] as const
 
 /** Coordenada vinda do formulário (pino arrastado no mapa ou sugestão de endereço escolhida). */
 function lerCoordenada(b: any): { lat: number; lng: number } | null {
@@ -615,8 +615,20 @@ function lerCoordenada(b: any): { lat: number; lng: number } | null {
  *
  * O uso é esporádico (um local por cadastro), dentro da política de uso do serviço.
  */
-async function geocodificar(l: { name?: string; address?: string; city?: string; cep?: string }): Promise<{ lat: number; lng: number } | null> {
-  const busca = [l.address, l.city, l.cep].filter(Boolean).join(', ').trim()
+/**
+ * Endereço → pino no mapa, pelo Nominatim.
+ *
+ * Duas falhas MUITO diferentes moram aqui: "não achei este endereço" e "não consegui
+ * falar com o serviço de mapas". A segunda é problema de rede ou de certificado do
+ * servidor, e engolir as duas do mesmo jeito fazia todo local nascer sem pino sem que
+ * ninguém soubesse por quê. Por isso o erro vai para o log e `geocodeFalhou` diz a quem
+ * chamou qual dos dois casos aconteceu.
+ */
+let geocodeFalhou = false
+async function geocodificar(l: { name?: string; address?: string; number?: string; city?: string; cep?: string }): Promise<{ lat: number; lng: number } | null> {
+  geocodeFalhou = false
+  const rua = [l.address, l.number].filter(Boolean).join(', ')
+  const busca = [rua, l.city, l.cep].filter(Boolean).join(', ').trim()
   if (!busca) return null
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(busca)}`
   try {
@@ -624,14 +636,22 @@ async function geocodificar(l: { name?: string; address?: string; city?: string;
       headers: { 'User-Agent': 'QualityChamados/1.0 (central de chamados interna)', 'Accept-Language': 'pt-BR' },
       signal: AbortSignal.timeout(6000),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      geocodeFalhou = true
+      app.log.warn({ status: res.status, busca }, 'serviço de mapas respondeu com erro')
+      return null
+    }
     const json: any = await res.json()
     const hit = Array.isArray(json) ? json[0] : null
     if (!hit) return null
     const lat = Number(hit.lat)
     const lng = Number(hit.lon)
     return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
-  } catch {
+  } catch (e: any) {
+    geocodeFalhou = true
+    // `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` aqui quer dizer Node sem as raízes de
+    // certificado (a variável NODE_USE_SYSTEM_CA do ambiente) — nada a ver com o endereço.
+    app.log.warn({ erro: e?.cause?.code ?? e?.message, busca }, 'não foi possível falar com o serviço de mapas')
     return null
   }
 }
@@ -735,7 +755,7 @@ app.post('/locais', async (req: any, reply) => {
   const name = String(b.name ?? '').trim()
   if (!name) return reply.code(400).send({ error: 'informe o nome do local' })
   const data: any = { code: String(b.code ?? '').trim() || (await nextLocalCode()), name }
-  for (const k of ['city', 'address', 'cep', 'phone', 'note', 'tipo'] as const) if (k in b) data[k] = String(b[k] ?? '')
+  for (const k of ['city', 'address', 'number', 'complement', 'cep', 'phone', 'note', 'tipo'] as const) if (k in b) data[k] = String(b[k] ?? '')
   // Coordenada que veio do formulário manda; só sem ela o endereço é geocodificado.
   const coord = lerCoordenada(b) ?? (await geocodificar(data))
   if (coord) { data.lat = coord.lat; data.lng = coord.lng }
@@ -759,16 +779,27 @@ app.patch('/locais/:id', async (req: any, reply) => {
     // Pino posicionado à mão: é a verdade, não se mexe nele.
     data.lat = manual.lat
     data.lng = manual.lng
-  } else if (('address' in data && data.address !== before.address) || ('city' in data && data.city !== before.city) || ('cep' in data && data.cep !== before.cep)) {
+  } else if (
+    ('address' in data && data.address !== before.address) ||
+    ('number' in data && data.number !== before.number) ||
+    ('city' in data && data.city !== before.city) ||
+    ('cep' in data && data.cep !== before.cep)
+  ) {
     // Endereço mudou e ninguém marcou o ponto: o pino velho apontaria para o lugar errado.
-    const coord = await geocodificar({ address: data.address ?? before.address, city: data.city ?? before.city, cep: data.cep ?? before.cep })
+    const coord = await geocodificar({
+      address: data.address ?? before.address,
+      number: data.number ?? before.number,
+      city: data.city ?? before.city,
+      cep: data.cep ?? before.cep,
+    })
     data.lat = coord?.lat ?? null
     data.lng = coord?.lng ?? null
   }
   const l = await prisma.local.update({ where: { id: req.params.id }, data })
   const detail = diffDetail(before, b, [
     { key: 'name', label: 'Nome' }, { key: 'code', label: 'Código' }, { key: 'city', label: 'Cidade' },
-    { key: 'address', label: 'Endereço' }, { key: 'phone', label: 'Telefone' },
+    { key: 'address', label: 'Endereço' }, { key: 'number', label: 'Número' },
+    { key: 'complement', label: 'Complemento' }, { key: 'phone', label: 'Telefone' },
   ])
   await audit(u, 'editar', 'local', l.name, l.name, detail || undefined)
   return l
@@ -785,7 +816,11 @@ app.post('/locais/:id/geocode', async (req: any, reply) => {
   // cadastrado só com CEP fora do mapa para sempre.
   if (!l.address && !l.city && !l.cep) return reply.code(400).send({ error: 'cadastre o endereço ou ao menos o CEP do local' })
   const coord = await geocodificar(l)
-  if (!coord) return reply.code(422).send({ error: 'não foi possível achar este endereço no mapa — confira a rua, o número e a cidade' })
+  if (!coord) {
+    return geocodeFalhou
+      ? reply.code(503).send({ error: 'o serviço de mapas não respondeu agora — tente de novo em instantes, ou marque o pino à mão' })
+      : reply.code(422).send({ error: 'não foi possível achar este endereço no mapa — confira a rua, o número e a cidade' })
+  }
   const atualizado = await prisma.local.update({ where: { id: l.id }, data: coord })
   return atualizado
 })

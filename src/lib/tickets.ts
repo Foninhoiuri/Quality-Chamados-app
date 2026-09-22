@@ -36,19 +36,19 @@ export function parseStatuses(settings: Record<string, string>): TicketStatusDef
 export const statusesDaFase = (lista: TicketStatusDef[], fase: FaseChamado) => lista.filter((s) => s.fase === fase)
 
 /**
- * A COR DE CADA FASE, uma só para o app inteiro: âmbar é o que espera, azul é o que está
- * sendo feito, verde é o que terminou. Cinza é o cancelado.
+ * A COR DE CADA FASE, uma só para o app inteiro: vermelho é o que espera alguém, azul é o
+ * que está sendo feito, verde é o que terminou.
  *
- * Não use `sky` nem `red` para isso: neste tema a paleta `sky` FOI trocada por vermelho
- * (a marca), então "aberto" e "em andamento" saíam da mesma cor e o quadro inteiro ficava
- * vermelho. O vermelho aqui é a cor das ações, não de um estado.
+ * Não use `sky` para "em andamento": neste tema a paleta `sky` FOI trocada por vermelho
+ * (a marca), e era isso que fazia aberto e em andamento saírem da mesma cor. Azul de
+ * verdade aqui é `blue`.
  */
 export const CORES_FASE: Record<FaseChamado, { badge: string; texto: string; ponto: string; ativo: string }> = {
   aberto: {
-    badge: 'bg-amber-500/10 text-amber-300',
-    texto: 'text-amber-300',
-    ponto: 'bg-amber-400',
-    ativo: 'border-amber-600/60 bg-amber-500/10 text-amber-200',
+    badge: 'bg-red-500/10 text-red-300',
+    texto: 'text-red-300',
+    ponto: 'bg-red-500',
+    ativo: 'border-red-700 bg-red-500/10 text-red-300',
   },
   andamento: {
     badge: 'bg-blue-500/10 text-blue-300',

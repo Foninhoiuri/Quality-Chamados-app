@@ -98,9 +98,10 @@ export function LocalSelect({ value, onChange, allowEmpty = true, className }: {
 }
 
 /** Link para o mapa a partir do que estiver preenchido no local. Vazio = sem endereço. */
-export function mapsUrl(l?: { name?: string; address?: string; city?: string } | null): string | null {
+export function mapsUrl(l?: { name?: string; address?: string; number?: string; city?: string } | null): string | null {
   if (!l) return null
-  const alvo = [l.address, l.city].filter(Boolean).join(', ')
+  // O complemento fica de fora: "fundos" só atrapalha a busca do mapa.
+  const alvo = [[l.address, l.number].filter(Boolean).join(', '), l.city].filter(Boolean).join(', ')
   if (!alvo) return null
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(alvo)}`
 }

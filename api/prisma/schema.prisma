@@ -86,7 +86,11 @@ model Local {
   code      String
   name      String
   city      String   @default("")
+  // Endereço em partes: a rua, o número e o complemento entram separados. Juntos num
+  // campo só, "Rua X 15 fundos" virava um texto que nem o mapa nem o relatório leem.
   address   String   @default("")
+  number    String   @default("")
+  complement String  @default("")
   // CEP é o atalho do cadastro: com ele o resto do endereço vem preenchido.
   cep       String   @default("")
   phone     String   @default("")

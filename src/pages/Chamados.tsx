@@ -16,6 +16,7 @@ import { ListaConcluidos } from '@/components/chamados/ListaConcluidos'
 import { aplicarFiltros, FiltrosChamados, FILTRO_VAZIO, type FiltroChamados } from '@/components/chamados/FiltrosChamados'
 import { AvatarPessoa } from '@/components/Pessoa'
 import { SiglaLocal } from '@/components/SiglaLocal'
+import { enderecoDoLocal } from '@/lib/locais'
 import type { FaseChamado, Registro, TecnicoRef, Ticket, TicketStatus, TicketStatusDef, Visita } from '@/lib/types'
 
 function slugify(s: string) {
@@ -861,7 +862,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   const local = useStore((s) => s.locais.find((l) => l.id === t.localId))
   const me = useCurrentUser()
   const mapa = mapsUrl(local ?? (t.localName ? { name: t.localName } : null))
-  const endereco = [local?.address, local?.city, local?.cep].filter(Boolean).join(', ')
+  const endereco = enderecoDoLocal(local)
   const [copiou, setCopiou] = useState(false)
   // Está no chamado: abriu, pegou ou foi posto junto. Esses sempre podem falar no andamento.
   const noChamado = t.createdById === me?.id || t.assigneeId === me?.id || (t.sharedWith ?? []).some((s) => s.id === me?.id)

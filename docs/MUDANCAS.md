@@ -5,6 +5,32 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — endereço em partes e o pino que não aparecia
+
+### Por que os locais não entravam no mapa
+
+O servidor pergunta a coordenada ao serviço de mapas, e essa chamada estava **falhando em
+silêncio**: o erro era engolido e o local nascia sem pino, sem nada no log. Agora a falha
+aparece no log do servidor e a tela diz qual dos dois casos aconteceu — "não achei este
+endereço" (confira a rua e o número) ou "o serviço de mapas não respondeu" (tente de novo,
+ou marque o pino à mão). Marcar no mapa volta a ser o que devia: a exceção.
+
+> Em desenvolvimento, a causa era o Node desta máquina sem as raízes de certificado. O
+> `npm run dev` da API já sobe com a opção certa — **reinicie a API** para valer.
+
+### Endereço em campos separados
+
+**CEP, rua, número, complemento e cidade**, cada um no seu campo. Com tudo junto numa linha
+só, "Rua X 15 fundos" não era endereço nem para o mapa nem para o relatório, e o número —
+que é o que o técnico procura no portão — sumia no meio do texto. A busca do mapa usa rua,
+número e cidade; o complemento fica de fora, porque "fundos" só atrapalha.
+
+### Chamado aberto voltou ao vermelho
+
+Vermelho espera, azul está sendo feito, verde terminou.
+
+---
+
 ## 22/09/2026 — rodapé do atendimento, troca de técnico no cartão e caixas de texto que crescem
 
 - **O botão de chegada/saída ficou fixo no rodapé do atendimento**, parado onde o polegar

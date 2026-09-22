@@ -1,4 +1,4 @@
-import type { TipoRegistroDef } from './types'
+import type { Local, TipoRegistroDef } from './types'
 
 /**
  * TIPOS DE LOCAL: a etiqueta do cadastro — que tipo de lugar é este. Serve para achar na
@@ -29,3 +29,20 @@ export const tipoLocalDe = (tipos: TipoRegistroDef[], key?: string | null): Tipo
 
 /** Como o tipo aparece DENTRO do chamado: a sigla, ou as 4 primeiras letras do nome. */
 export const siglaDoTipo = (t: TipoRegistroDef) => (t.abrev?.trim() || t.label.slice(0, 4)).toUpperCase()
+
+/** Um endereço em partes. Serve para o cadastro e para qualquer coisa parecida com um local. */
+type PartesDoEndereco = Pick<Local, 'address' | 'city'> & Partial<Pick<Local, 'number' | 'complement' | 'cep'>>
+
+/**
+ * A RUA COM O NÚMERO: "Rua Bérgamo, 15". É o que o mapa entende e o que se lê primeiro —
+ * o complemento ("fundos", "bloco B") fica de fora porque atrapalha a busca.
+ */
+export const ruaComNumero = (l?: Partial<PartesDoEndereco> | null) =>
+  [l?.address, l?.number].filter(Boolean).join(', ')
+
+/** O endereço como se escreve num papel: rua, número, complemento, cidade e CEP. */
+export function enderecoDoLocal(l?: Partial<PartesDoEndereco> | null, comComplemento = true): string {
+  if (!l) return ''
+  const rua = [ruaComNumero(l), comComplemento ? l.complement : ''].filter(Boolean).join(' - ')
+  return [rua, l.city, l.cep].filter(Boolean).join(', ')
+}

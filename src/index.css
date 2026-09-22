@@ -48,7 +48,7 @@ label:has(> input[type='radio']),
   /* A COR DE CADA FASE DO CHAMADO, uma só para o app inteiro: âmbar espera, azul está
      sendo feito, verde terminou. O vermelho aqui é a cor das ações, não de um estado —
      e como a paleta `sky` do tema virou vermelho, azul de verdade é `blue`. */
-  --fase-aberto: #f59e0b;
+  --fase-aberto: #ef4444;
   --fase-andamento: #3b82f6;
   --fase-concluido: #34d399;
   /* As séries dos gráficos seguem as fases: "abertos" e "concluídos" são as mesmas
@@ -106,7 +106,7 @@ label:has(> input[type='radio']),
   --chart-grid: #dde1e7;
   --chart-tick: #5b616b;
   /* No claro as cores fecham o tom: verde, âmbar e azul claros sumiam sobre branco. */
-  --fase-aberto: #b45309;
+  --fase-aberto: #dc2626;
   --fase-andamento: #1d4ed8;
   --fase-concluido: #059669;
   --serie-abertos: var(--fase-aberto);

@@ -9,7 +9,7 @@ import { mapsUrl } from '@/components/LocalSelect'
 import { MapaLocais } from '@/components/MapaLocais'
 import { api } from '@/lib/api'
 import { GerenciarLista } from '@/components/GerenciarLista'
-import { parseTiposLocal, tipoLocalDe } from '@/lib/locais'
+import { enderecoDoLocal, parseTiposLocal, tipoLocalDe } from '@/lib/locais'
 import type { Local } from '@/lib/types'
 
 /** Botão de copiar do lado do dado — endereço e telefone existem para ir parar em outro app. */
@@ -105,7 +105,7 @@ export default function Locais() {
     return locais.filter((l) => {
       if (tipoFiltro && (tipoFiltro === 'sem' ? !!l.tipo : l.tipo !== tipoFiltro)) return false
       if (!t) return true
-      return `${l.code} ${l.name} ${l.city} ${l.address} ${l.cep ?? ''}`.toLowerCase().includes(t)
+      return `${l.code} ${l.name} ${l.city} ${l.address} ${l.number ?? ''} ${l.cep ?? ''}`.toLowerCase().includes(t)
     })
   }, [locais, q, tipoFiltro])
 
@@ -117,7 +117,11 @@ export default function Locais() {
 
   function openNew() { setForm(vazio); setEditing('new') }
   function openEdit(l: Local) {
-    setForm({ code: l.code, name: l.name, tipo: l.tipo ?? '', cep: l.cep ?? '', city: l.city, address: l.address, note: l.note, lat: l.lat ?? null, lng: l.lng ?? null })
+    setForm({
+      code: l.code, name: l.name, tipo: l.tipo ?? '', cep: l.cep ?? '',
+      city: l.city, address: l.address, number: l.number ?? '', complement: l.complement ?? '',
+      note: l.note, lat: l.lat ?? null, lng: l.lng ?? null,
+    })
     setEditing(l)
   }
   useEffect(() => {
@@ -255,11 +259,10 @@ export default function Locais() {
                 {(l.address || l.city) && (
                   <div className="flex items-start gap-1.5">
                     <MapPin size={12} className="mt-0.5 shrink-0" />
-                    <span className="min-w-0 flex-1">{[l.address, l.city].filter(Boolean).join(' · ')}</span>
-                    <Copiar texto={[l.address, l.city].filter(Boolean).join(', ')} label="endereço" />
+                    <span className="min-w-0 flex-1">{enderecoDoLocal(l)}</span>
+                    <Copiar texto={enderecoDoLocal(l)} label="endereço" />
                   </div>
                 )}
-                {l.cep && <div className="font-mono text-[11px] text-slate-500">CEP {l.cep}</div>}
                 {l.note && <div className="whitespace-pre-wrap text-slate-500">{l.note}</div>}
                 {/* Dois destinos diferentes, dois botões: aqui dentro (o mapa da tela) e
                     lá fora (o Google Maps, que é o que abre a navegação no carro). */}
