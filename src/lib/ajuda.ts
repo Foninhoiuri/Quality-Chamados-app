@@ -193,7 +193,7 @@ export const AJUDA: AjudaSecao[] = [
         titulo: 'Cheguei agora / Saí agora',
         perm: ['registrar_atendimento'],
         texto:
-          'É o ponto do atendimento, no rodapé do chamado: um toque ao chegar no local, outro ao sair. A hora gravada é a do toque, e a conta do tempo é feita pelo servidor — você não digita nada.',
+          'É o ponto do atendimento: um toque ao chegar no local, outro ao sair. A hora gravada é a do toque, e a conta do tempo é feita pelo servidor — você não digita nada. O botão está no rodapé do chamado e no alto do atendimento.',
         passos: [
           'Chegou no prédio: abra o chamado e toque em "Cheguei agora".',
           'O botão fica verde e vira "Saí agora" enquanto você está lá.',
@@ -208,7 +208,7 @@ export const AJUDA: AjudaSecao[] = [
           'É o relatório do serviço, e é dele que saem as horas e o relatório do mês. O cartão do chamado tem o botão da chave de boca, que abre direto — de dentro do chamado, é "Preencher atendimento".',
         passos: [
           'Solução: o que foi feito para resolver. É o campo que a conclusão exige.',
-          'Idas ao local: as marcações de chegada e saída, que dá para corrigir à mão — por horário ou informando só quanto tempo ficou.',
+          'Idas ao local: fica recolhido, porque o botão de chegada já resolve o dia a dia. Abra quando precisar corrigir uma hora ou lançar uma ida que ninguém marcou na época — por horário ou informando só quanto tempo ficou.',
           'Fotos: "antes de começar" (como você encontrou) e "depois" (como você deixou) — o par é o que sustenta o serviço numa discussão meses depois. As fotos de quem abriu o chamado ficam em outro lugar, no corpo do chamado.',
           'Itens usados: o que foi trocado ou comprado, com quantidade e valor.',
           'Análise, possível solução e ações tomadas: ficam recolhidos, para quando o caso pede mais texto.',

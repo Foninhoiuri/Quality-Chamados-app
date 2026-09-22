@@ -881,28 +881,36 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
         )}
       </div>
 
-      {/* Chegar no local é a primeira coisa que o técnico faz depois de pegar o chamado:
-          o endereço fica à mão, para abrir no GPS ou copiar e mandar para alguém. */}
+      {/*
+        Chegar no local é a primeira coisa depois de pegar o chamado — mas é UMA linha de
+        endereço, não meia tela. Com os botões na mesma linha, o endereço ficava espremido
+        numa coluna estreita e quebrava em cinco linhas; aqui ele usa a largura toda e os
+        botões vão para baixo, pequenos.
+      */}
       {endereco && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-          <MapPin size={14} className="shrink-0 text-red-400" />
-          <span className="min-w-0 flex-1 text-[12.5px] text-slate-300">{endereco}</span>
-          <a
-            href={mapa ?? '#'}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-[12px] font-medium text-slate-100 hover:border-red-700 hover:bg-red-500/10"
-          >
-            <Navigation size={13} /> Abrir no GPS
-          </a>
-          <button
-            onClick={async () => {
-              try { await navigator.clipboard.writeText(endereco); setCopiou(true); setTimeout(() => setCopiou(false), 1500) } catch { /* sem área de transferência */ }
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[12px] text-slate-300 hover:border-slate-700 hover:text-slate-100"
-          >
-            {copiou ? <CheckCircle2 size={13} className="text-emerald-400" /> : <Copy size={13} />} {copiou ? 'Copiado' : 'Copiar'}
-          </button>
+        <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-2">
+          <div className="flex items-start gap-1.5">
+            <MapPin size={13} className="mt-px shrink-0 text-red-400" />
+            <span className="min-w-0 flex-1 text-[12px] leading-snug text-slate-300">{endereco}</span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <a
+              href={mapa ?? '#'}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-100 hover:border-red-700 hover:bg-red-500/10"
+            >
+              <Navigation size={12} /> Abrir no GPS
+            </a>
+            <button
+              onClick={async () => {
+                try { await navigator.clipboard.writeText(endereco); setCopiou(true); setTimeout(() => setCopiou(false), 1500) } catch { /* sem área de transferência */ }
+              }}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-800 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-700 hover:text-slate-100"
+            >
+              {copiou ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />} {copiou ? 'Copiado' : 'Copiar'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -938,9 +946,6 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
         <AtendimentoTecnico
           t={t}
           podeEditar={podeAtender}
-          // Quem está junto no chamado também vai ao local: marca a própria ida, mesmo
-          // sem poder escrever o atendimento.
-          podeMarcarPonto={podeAtender || (t.sharedWith ?? []).some((p) => p.id === me?.id)}
           onEditar={onEditarAtendimento}
           onSalvo={onRefresh}
         />
@@ -1055,41 +1060,54 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
         )}
       </div>
 
-      {/* Uma ação por cartão, com o nome do que vai acontecer — e a conversa ao lado, para
-          quem só precisa falar com quem está no chamado, sem pegar nada. */}
+      {/*
+        A AÇÃO GRANDE É A DO DIA A DIA. Com o chamado na mão, o que o técnico faz o tempo
+        todo é abrir o atendimento — finalizar acontece uma vez só, no fim. Por isso, tendo
+        atendimento, é ele que ocupa a linha, e "Finalizar" encolhe: continua vermelho,
+        para ser achado na hora certa, sem ser o que a mão encontra primeiro.
+      */}
       <div className="mt-2 flex items-stretch gap-1.5">
-        {etapa && (
-          <button
-            onClick={stop(etapa.acao)}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-[12px] font-medium ${
-              etapa.icone === 'pegar'
-                ? 'border-emerald-800/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                : etapa.icone === 'concluir'
-                  ? 'border-red-800/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
-                  : 'border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-700'
-            }`}
-          >
-            {etapa.icone === 'pegar' ? <HandHelping size={14} /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />} {etapa.label}
-          </button>
-        )}
         {onAtender && (
           <button
             onClick={stop(onAtender)}
-            title="Preencher o atendimento"
-            aria-label="Preencher o atendimento"
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700/70 py-2 text-[12px] font-semibold text-slate-100 hover:bg-slate-700"
           >
-            <Wrench size={14} />
+            <Wrench size={14} /> Atendimento
+          </button>
+        )}
+        {etapa && (
+          <button
+            onClick={stop(etapa.acao)}
+            title={etapa.label}
+            className={
+              onAtender
+                ? `inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-semibold ${
+                    etapa.icone === 'concluir'
+                      ? 'bg-red-600 text-white hover:bg-red-500'
+                      : 'border border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-700'
+                  }`
+                : `flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-[12px] font-medium ${
+                    etapa.icone === 'pegar'
+                      ? 'border-emerald-800/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                      : etapa.icone === 'concluir'
+                        ? 'border-red-800/60 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                        : 'border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-700'
+                  }`
+            }
+          >
+            {etapa.icone === 'pegar' ? <HandHelping size={14} /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />}
+            {/* Encolhido, o botão mostra só o verbo: "Finalizar chamado" não cabe. */}
+            {onAtender ? (etapa.icone === 'concluir' ? 'Finalizar' : '') : etapa.label}
           </button>
         )}
         <button
           onClick={stop(onChat)}
           title="Conversa do chamado"
           aria-label="Conversa do chamado"
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapa || onAtender ? '' : 'flex-1'}`}
+          className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapa || onAtender ? '' : 'flex-1'}`}
         >
           <MessagesSquare size={14} />
-          {t.commentCount ? <span className="tabular-nums">{t.commentCount}</span> : !etapa && 'Conversa'}
+          {t.commentCount ? <span className="tabular-nums">{t.commentCount}</span> : !etapa && !onAtender && 'Conversa'}
         </button>
       </div>
 

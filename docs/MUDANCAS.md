@@ -5,6 +5,30 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — o atendimento virou a tela do técnico
+
+O chamado em andamento passa a ser **resumo**; quem trabalha trabalha dentro do
+atendimento. Antes o botão de marcar chegada aparecia duas vezes na mesma tela e dava
+dúvida sobre qual estava valendo.
+
+- **"Marcar minha chegada agora" abre o atendimento** — é o primeiro gesto de quem chega
+  no local. No chamado ele continua como atalho no rodapé, e some do corpo (que agora só
+  mostra, com "no local desde…" quando a ida está aberta).
+- **"Idas ao local" ficou recolhido**, logo abaixo do botão de chegada, com o total do
+  lado. Ele só é aberto quando o relógio precisa de conserto ou para lançar uma ida que
+  ninguém marcou na hora.
+- **Os textos ficam juntos**: a solução à vista e, na mesma caixa, uma linha que abre
+  análise, possível solução e ações tomadas — com a contagem do que já está escrito.
+- **Fotos no celular em dois botões**: "Tirar foto" abre a câmera direto, "Galeria" pega o
+  que já existe. No computador dá para **arrastar as fotos** para dentro da caixa.
+- **No cartão de Em andamento, "Atendimento" é o botão grande** e "Finalizar" encolheu —
+  continua vermelho, mas deixa de ser o que a mão encontra primeiro. Atender é o que se faz
+  o dia inteiro; finalizar acontece uma vez.
+- **O endereço no chamado ocupa menos**: ele usa a largura toda e os botões (GPS e copiar)
+  ficam embaixo, pequenos. Antes quebrava em cinco linhas.
+
+---
+
 ## 22/09/2026 — cores por estado, fotos de antes e depois, serviço na abertura
 
 ### Cada estado do chamado tem a sua cor

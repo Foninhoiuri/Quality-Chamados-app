@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Wrench, Plus, Trash2, Save, Loader2, Clock, Package, Pencil, LogIn, LogOut, History, ArrowRightLeft } from 'lucide-react'
+import { Wrench, Plus, Trash2, Save, Loader2, Clock, Package, Pencil, LogIn, LogOut, History, ArrowRightLeft, ChevronRight } from 'lucide-react'
 import { Button, Field, Input, Modal, Select, Textarea } from './ui'
 import { PhotoInput } from './PhotoInput'
 import { AvatarPessoa } from './Pessoa'
@@ -213,6 +213,35 @@ export function usarPonto(t: Ticket, onSalvo?: () => void) {
 }
 
 /**
+ * O BLOCO DO PONTO: o botão grande que alterna chegada/saída, com a hora da chegada
+ * embaixo. Vive onde o técnico trabalha — dentro do atendimento. No chamado ele aparece
+ * só como atalho no rodapé (`BotaoPonto`), e o corpo do chamado fica sendo o resumo.
+ */
+export function PontoDoTecnico({ t, onSalvo }: { t: Ticket; onSalvo?: () => void }) {
+  const { emAndamento, marcando, marcarPonto } = usarPonto(t, onSalvo)
+  return (
+    <div>
+      {/* Um botão que alterna — nunca dois botões de chegada na mesma tela. */}
+      <button
+        onClick={marcarPonto}
+        disabled={marcando}
+        className={`flex w-full items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold disabled:opacity-60 ${
+          emAndamento ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700'
+        }`}
+      >
+        {marcando ? <Loader2 size={16} className="animate-spin" /> : emAndamento ? <LogOut size={16} /> : <LogIn size={16} />}
+        {emAndamento ? 'Marcar minha saída agora' : 'Marcar minha chegada agora'}
+      </button>
+      {emAndamento && (
+        <p className="mt-1.5 text-center text-[11px] text-emerald-300/80">
+          no local desde {dataHoraCurta(`${emAndamento.data}T${emAndamento.inicio}`)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
  * O ponto no rodapé do chamado: quem chegou no local marca a hora sem abrir o atendimento
  * — é o que mais se faz com o celular na mão, e era o que estava mais longe.
  */
@@ -232,17 +261,14 @@ export function BotaoPonto({ t, onSalvo }: { t: Ticket; onSalvo?: () => void }) 
   )
 }
 
-export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, onSalvo }: {
+export function AtendimentoTecnico({ t, podeEditar, onEditar, onSalvo }: {
   t: Ticket
   podeEditar: boolean
-  /** Marcar chegada/saída — o apoio também faz, mesmo sem escrever o atendimento. */
-  podeMarcarPonto?: boolean
   onEditar: () => void
   onSalvo?: () => void
 }) {
   const vazio = !t.analise && !t.possivelSolucao && !t.solucao && !t.acoesTomadas && !(t.visitas?.length) && !(t.itens?.length) && !(t.donePhotos?.length) && !(t.startPhotos?.length)
-  const podePonto = podeMarcarPonto ?? podeEditar
-  const { emAndamento, marcando, marcarPonto } = usarPonto(t, onSalvo)
+  const { emAndamento } = usarPonto(t, onSalvo)
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/30 p-3">
@@ -253,22 +279,15 @@ export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, o
         </div>
       </div>
 
-      {/* O ponto é UM botão que alterna — nunca dois botões de chegada na mesma tela. */}
-      {podePonto && (
-        <button
-          onClick={marcarPonto}
-          disabled={marcando}
-          className={`mb-3 flex w-full items-center justify-center gap-2 rounded-lg py-3 text-[14px] font-semibold disabled:opacity-60 ${
-            emAndamento ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700'
-          }`}
-        >
-          {marcando ? <Loader2 size={16} className="animate-spin" /> : emAndamento ? <LogOut size={16} /> : <LogIn size={16} />}
-          {emAndamento ? 'Marcar minha saída agora' : 'Marcar minha chegada agora'}
-        </button>
-      )}
+      {/*
+        AQUI NÃO SE MARCA PONTO. Este bloco é o resumo do atendimento dentro do chamado; o
+        botão de chegada mora no rodapé do chamado (atalho) e dentro do atendimento (onde
+        o técnico trabalha). Ter o mesmo botão duas vezes na mesma tela só gera dúvida
+        sobre qual dos dois está valendo.
+      */}
       {emAndamento && (
-        <p className="mb-3 -mt-1.5 text-center text-[11px] text-emerald-300/80">
-          no local desde {dataHoraCurta(`${emAndamento.data}T${emAndamento.inicio}`)}
+        <p className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300">
+          <LogIn size={11} /> no local desde {dataHoraCurta(`${emAndamento.data}T${emAndamento.inicio}`)}
         </p>
       )}
 
@@ -377,6 +396,11 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
   const showToast = useStore((s) => s.showToast)
   const [form, setForm] = useState(() => paraForm(t))
   const [saving, setSaving] = useState(false)
+  /** A lista de idas nasce fechada: com o botão de ponto acima, ela é a exceção. */
+  const [idasAbertas, setIdasAbertas] = useState(false)
+  /** Os textos extras abrem sozinhos quando já têm conteúdo — escondê-los esconderia o
+   *  trabalho de quem escreveu antes. */
+  const [textosAbertos, setTextosAbertos] = useState(() => !!(t.analise || t.possivelSolucao || t.acoesTomadas))
 
   // O ponto pode ter sido marcado com o modal fechado (ou por outro técnico): quando a
   // lista de idas muda no servidor, o formulário acompanha — antes a ida não aparecia aqui.
@@ -390,6 +414,7 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
   }, [assinatura])
 
   const totalForm = form.visitas.reduce((s, v) => s + (minutosDe(v) ?? 0), 0)
+  const preenchidos = [form.analise, form.possivelSolucao, form.acoesTomadas].filter((x) => x.trim()).length
   /** Quem pode assinar uma ida: o responsável e quem está junto. Cada ida é de um só. */
   const equipe = [
     ...(t.assigneeId ? [{ id: t.assigneeId, name: t.assigneeName ?? 'responsável' }] : []),
@@ -464,14 +489,28 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
       }
     >
       <div className="space-y-4">
-        <Field label="Solução" hint="é ela que libera a conclusão do chamado, e o que o relatório vai mostrar">
-          <Textarea rows={3} value={form.solucao} onChange={(e) => setForm({ ...form, solucao: e.target.value })} placeholder="O que resolveu" autoFocus />
-        </Field>
+        {/* O ponto abre o atendimento: é o primeiro gesto de quem chega no local, e a
+            ida marcada aqui já aparece na lista logo abaixo. */}
+        <PontoDoTecnico t={t} onSalvo={onSalvo} />
 
-        <div>
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-medium text-slate-400">Idas ao local {totalForm > 0 && <span className="text-slate-300">· {fmtMinutos(totalForm)} no total</span>}</span>
-          </div>
+        {/*
+          AS IDAS FICAM GUARDADAS. Quem está em campo resolve tudo no botão de cima; esta
+          lista só é aberta quando o relógio precisa de conserto — a chegada que ficou
+          errada, ou a ida de outro dia que ninguém marcou na hora.
+        */}
+        <details
+          open={idasAbertas}
+          onToggle={(e) => setIdasAbertas((e.currentTarget as HTMLDetailsElement).open)}
+          className="rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-2"
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-[12px] font-medium text-slate-300">
+            <ChevronRight size={14} className={`shrink-0 text-slate-500 transition-transform ${idasAbertas ? 'rotate-90' : ''}`} />
+            <Clock size={13} className="shrink-0 text-slate-500" />
+            <span className="flex-1">Idas ao local</span>
+            <span className="tabular-nums text-slate-400">{form.visitas.length} · {fmtMinutos(totalForm)}</span>
+          </summary>
+          <div className="mt-2">
+
           <div className="space-y-2">
             {form.visitas.map((v, i) => {
               const m = minutosDe(v)
@@ -565,13 +604,46 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
           >
             <Plus size={15} /> Adicionar ida ao local
           </button>
+          </div>
+        </details>
+
+        {/*
+          O QUE SE ESCREVE FICA JUNTO. A solução é obrigatória e sempre à vista; os outros
+          três textos ficam logo abaixo dela, atrás de uma linha que diz o que são — assim
+          se sabe que eles existem sem encarar quatro caixas vazias toda vez.
+        */}
+        <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
+          <Field label="Solução" hint="é ela que libera a conclusão do chamado, e o que o relatório vai mostrar">
+            <Textarea rows={3} value={form.solucao} onChange={(e) => setForm({ ...form, solucao: e.target.value })} placeholder="O que resolveu" autoFocus />
+          </Field>
+
+          <details
+            open={textosAbertos}
+            onToggle={(e) => setTextosAbertos((e.currentTarget as HTMLDetailsElement).open)}
+            className="border-t border-slate-800/80 pt-2"
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[12px] font-medium text-slate-400 hover:text-slate-200">
+              <ChevronRight size={14} className={`shrink-0 text-slate-500 transition-transform ${textosAbertos ? 'rotate-90' : ''}`} />
+              Análise, possível solução e ações tomadas
+              {!textosAbertos && preenchidos > 0 && (
+                <span className="rounded-full bg-slate-800 px-1.5 text-[10px] tabular-nums text-slate-300">{preenchidos}</span>
+              )}
+            </summary>
+            <div className="mt-2 space-y-2">
+              <Field label="Análise do problema"><Textarea rows={2} value={form.analise} onChange={(e) => setForm({ ...form, analise: e.target.value })} placeholder="O que foi encontrado no local" /></Field>
+              <Field label="Possível solução"><Textarea rows={2} value={form.possivelSolucao} onChange={(e) => setForm({ ...form, possivelSolucao: e.target.value })} placeholder="O que ainda pode ser feito, se não resolveu de vez" /></Field>
+              <Field label="Ações tomadas"><Textarea rows={2} value={form.acoesTomadas} onChange={(e) => setForm({ ...form, acoesTomadas: e.target.value })} placeholder="O que foi feito no local, passo a passo" /></Field>
+            </div>
+          </details>
         </div>
 
-        {/* Fotos antes dos itens: no celular, o seletor de imagem cobre a tela e voltar
-            para o fim de um formulário longo é o que mais irrita. */}
-        {/* ANTES e DEPOIS, separados: a foto de como estava quando cheguei é o que
-            sustenta o serviço na conversa de um mês depois. A foto de quem abriu o
-            chamado é outra coisa e continua no corpo do chamado. */}
+
+        {/*
+          ANTES e DEPOIS, um ao lado do outro: é esse par que sustenta o serviço na
+          conversa de um mês depois. Vêm antes dos itens porque, no celular, o seletor de
+          imagem cobre a tela — voltar para o fim de um formulário longo é o que mais irrita.
+          A foto de quem ABRIU o chamado é outra coisa, e continua no corpo do chamado.
+        */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Antes de começar" hint="como você encontrou">
             <PhotoInput photos={form.startPhotos} onChange={(startPhotos) => setForm({ ...form, startPhotos })} />
@@ -607,15 +679,6 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
             <Plus size={14} /> Adicionar item
           </button>
         </div>
-
-        <details className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-          <summary className="cursor-pointer text-[12px] font-medium text-slate-300">Análise, possível solução e ações tomadas</summary>
-          <div className="mt-3 space-y-3">
-            <Field label="Análise do problema"><Textarea rows={2} value={form.analise} onChange={(e) => setForm({ ...form, analise: e.target.value })} placeholder="O que foi encontrado no local" /></Field>
-            <Field label="Possível solução"><Textarea rows={2} value={form.possivelSolucao} onChange={(e) => setForm({ ...form, possivelSolucao: e.target.value })} /></Field>
-            <Field label="Ações tomadas"><Textarea rows={2} value={form.acoesTomadas} onChange={(e) => setForm({ ...form, acoesTomadas: e.target.value })} /></Field>
-          </div>
-        </details>
 
         {!!t.historico?.length && (
           <div className="border-t border-slate-800 pt-3">
