@@ -1,7 +1,18 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, KeyboardEvent, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MoreVertical, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+/**
+ * AS CAMADAS DA TELA, de baixo para cima: conteúdo (o mapa e seus botões chegam a 500,
+ * que é a escala do Leaflet), o visualizador de foto, as janelas e, acima de tudo, o
+ * aviso que some sozinho — ele não serve para nada se nasce atrás da janela que o abriu.
+ */
+export const Z_MODAL = 1000
+export const Z_TOAST = 3000
+
+/** Quantas janelas estão abertas agora. A próxima a abrir entra por cima das outras. */
+let ABERTAS = 0
 
 export function Card({ className, children, onClick }: { className?: string; children: ReactNode; onClick?: () => void }) {
   return <div onClick={onClick} className={cn('rounded-xl border border-slate-800 bg-slate-900/50 shadow-sm', className)}>{children}</div>
@@ -222,6 +233,20 @@ export function Modal({
    */
   telaCheia?: boolean
 }) {
+  /**
+   * Cada janela aberta entra POR CIMA da anterior. A ordem em que as janelas aparecem no
+   * arquivo não é a ordem em que elas abrem: a confirmação de excluir é declarada antes do
+   * chamado, e com um z-index fixo ela nascia atrás dele — a tela parecia travada, com um
+   * botão que não respondia.
+   */
+  const [nivel, setNivel] = useState(0)
+  useEffect(() => {
+    if (!open) return
+    ABERTAS += 1
+    setNivel(ABERTAS)
+    return () => { ABERTAS -= 1 }
+  }, [open])
+
   if (!open) return null
   const rotuloFechar = fechar === undefined ? (footer ? null : 'Fechar') : fechar
 
@@ -237,7 +262,10 @@ export function Modal({
   }
 
   return (
-    <div className={cn('fixed inset-0 z-50 flex justify-center overflow-auto sm:items-center sm:p-8', telaCheia ? 'items-stretch' : 'items-end')}>
+    <div
+      className={cn('fixed inset-0 flex justify-center overflow-auto sm:items-center sm:p-8', telaCheia ? 'items-stretch' : 'items-end')}
+      style={{ zIndex: Z_MODAL + Math.min(nivel || 1, 20) }}
+    >
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
         role="dialog"

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from '@/lib/store'
+import { Z_TOAST } from './ui'
 
 /**
  * Atalhos de teclado:
@@ -40,8 +41,10 @@ export function ShortcutsListener() {
 export function Toast() {
   const toast = useStore((s) => s.toast)
   if (!toast) return null
+  // Acima de qualquer janela: o aviso do que acabou de acontecer costuma nascer de dentro
+  // de uma — "excluído", "salvo" — e atrás dela não serve para nada.
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[60] flex justify-center px-4 md:bottom-6" role="status">
+    <div className="pointer-events-none fixed inset-x-0 bottom-20 flex justify-center px-4 md:bottom-6" style={{ zIndex: Z_TOAST }} role="status">
       <div className="pointer-events-auto rounded-lg border border-slate-700 bg-slate-900/95 px-3.5 py-2 text-sm text-slate-100 shadow-xl backdrop-blur">{toast}</div>
     </div>
   )

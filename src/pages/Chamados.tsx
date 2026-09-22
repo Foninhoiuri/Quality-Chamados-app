@@ -8,14 +8,14 @@ import { api, assetUrl } from '@/lib/api'
 import { esperaDesde, FASES, faseDoTicket, paraInputLocal, parseStatuses } from '@/lib/tickets'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
 import { PhotoInput } from '@/components/PhotoInput'
-import { AtendimentoTecnico, BotaoPonto, ModalAtendimento } from '@/components/AtendimentoTecnico'
+import { AtendimentoTecnico, BotaoPonto, minutosDoTexto, ModalAtendimento } from '@/components/AtendimentoTecnico'
 import { ChatChamado } from '@/components/chamados/ChatChamado'
 import { LocalSelect, mapsUrl } from '@/components/LocalSelect'
 import { CompartilharChamado } from '@/components/CompartilharChamado'
 import { ListaConcluidos } from '@/components/chamados/ListaConcluidos'
 import { aplicarFiltros, FiltrosChamados, FILTRO_VAZIO, type FiltroChamados } from '@/components/chamados/FiltrosChamados'
 import { AvatarPessoa } from '@/components/Pessoa'
-import type { FaseChamado, Registro, TecnicoRef, Ticket, TicketStatus, TicketStatusDef } from '@/lib/types'
+import type { FaseChamado, Registro, TecnicoRef, Ticket, TicketStatus, TicketStatusDef, Visita } from '@/lib/types'
 
 function slugify(s: string) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -33,6 +33,8 @@ interface TForm {
   /** Serviço que já foi feito: nasce concluído, no nome de quem está registrando. */
   jaRealizado: boolean
   realizadoEm: string
+  /** Tempo no local do serviço já realizado ("1:30" ou "1,5"): vira a ida do atendimento. */
+  duracao: string
   solucao: string
   acoesTomadas: string
   /** Datas do chamado (só para quem tem `ajustar_datas_chamado`). */
@@ -41,7 +43,7 @@ interface TForm {
 }
 const emptyForm = (firstStatus: string, localId = ''): TForm => ({
   title: '', description: '', solicitante: '', status: firstStatus, localId, photos: [],
-  jaRealizado: false, realizadoEm: agoraLocal(), solucao: '', acoesTomadas: '', createdAt: '', resolvedAt: '',
+  jaRealizado: false, realizadoEm: agoraLocal(), duracao: '', solucao: '', acoesTomadas: '', createdAt: '', resolvedAt: '',
 })
 /** Campos de data do chamado são data E hora: "ontem" sem a hora não diz quando foi. */
 const agoraLocal = () => paraInputLocal(new Date().toISOString())
@@ -280,9 +282,28 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
     return { label: 'Finalizar chamado', icone: 'concluir', acao: () => concluir(t) }
   }
 
+  /**
+   * O tempo digitado no serviço já realizado vira a ida do atendimento: chegada na hora
+   * informada, saída na hora informada + o tempo. Assim as horas entram no relatório sem
+   * ninguém ter de reabrir um chamado que já nasceu fechado.
+   */
+  function idaDoServico(): Visita[] | undefined {
+    if (!form.jaRealizado || !form.duracao.trim() || !form.realizadoEm) return undefined
+    const minutos = minutosDoTexto(form.duracao)
+    if (!minutos) return undefined
+    const chegada = new Date(form.realizadoEm)
+    const saida = new Date(chegada.getTime() + minutos * 60000)
+    const hhmm = (d: Date) => d.toTimeString().slice(0, 5)
+    const aaaammdd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return [{ data: aaaammdd(chegada), inicio: hhmm(chegada), fimData: aaaammdd(saida), fim: hhmm(saida), minutos }]
+  }
+
   async function save() {
     if (!form.title.trim()) return showToast('Informe um título para o chamado')
     if (form.jaRealizado && !form.solucao.trim()) return showToast('Descreva o que foi feito para registrar um serviço já realizado')
+    if (form.jaRealizado && form.duracao.trim() && !minutosDoTexto(form.duracao)) {
+      return showToast('Tempo inválido — escreva como 1:30 ou 1,5')
+    }
     const payload: Partial<Ticket> & { title: string } = {
       title: form.title.trim(),
       description: form.description.trim() || null,
@@ -299,7 +320,13 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           ...payload,
           registroId: form.registroId,
           ...(jaRealizado
-            ? { jaRealizado: true, realizadoEm: paraIso(form.realizadoEm), solucao: form.solucao.trim(), acoesTomadas: form.acoesTomadas.trim() || null }
+            ? {
+                jaRealizado: true,
+                realizadoEm: paraIso(form.realizadoEm),
+                solucao: form.solucao.trim(),
+                acoesTomadas: form.acoesTomadas.trim() || null,
+                visitas: idaDoServico(),
+              }
             : canDatas && form.createdAt ? { createdAt: paraIso(form.createdAt) } : {}),
         })
         // Serviço antigo nasce concluído com data velha: o quadro não o mostra, o histórico sim.
@@ -482,9 +509,15 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           )}
           {form.jaRealizado && (
             <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[12px] text-emerald-200/90">
-              Você já resolveu isso no local. O chamado entra concluído, com você como responsável — sem passar pela fila. Lance as horas depois, em “Atendimento técnico”.
+              Você já resolveu isso no local. O chamado entra concluído, com você como responsável — sem passar pela fila. O tempo no local vai aqui mesmo; itens e fotos entram depois, pelo atendimento.
             </p>
           )}
+
+          {/* O local vem primeiro: é a primeira coisa que se pergunta no telefone, e é ele
+              que decide quem enxerga o chamado. */}
+          <FieldBox label="Local" hint="não está na lista? cadastre por aqui mesmo">
+            <LocalSelect value={form.localId} onChange={(v) => setForm({ ...form, localId: v })} />
+          </FieldBox>
 
           <Field label={form.jaRealizado ? 'O que foi feito (título)' : 'Título'}>
             <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={form.jaRealizado ? 'Ex.: Troca da câmera da portaria' : 'Ex.: Portão da garagem não abre'} autoFocus />
@@ -498,36 +531,44 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
               <Field label="Solução" hint="obrigatória — é o que o relatório e a próxima visita vão ler">
                 <Textarea value={form.solucao} onChange={(e) => setForm({ ...form, solucao: e.target.value })} rows={2} placeholder="O que resolveu" />
               </Field>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Quando foi feito" hint="dia e hora — até 90 dias atrás">
+              <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
+                <Field label="Quando cheguei no local" hint="dia e hora — até 90 dias atrás">
                   <Input type="datetime-local" value={form.realizadoEm} max={agoraLocal()} onChange={(e) => setForm({ ...form, realizadoEm: e.target.value })} />
                 </Field>
-                <Field label="Ações tomadas"><Input value={form.acoesTomadas} onChange={(e) => setForm({ ...form, acoesTomadas: e.target.value })} placeholder="opcional" /></Field>
+                {/* O tempo entra aqui e já vira a ida do atendimento: mandar lançar as
+                    horas depois, num chamado que nasce concluído, é pedir para não lançar. */}
+                <Field label="Quanto tempo levou" hint="1:30 ou 1,5 — opcional">
+                  <Input value={form.duracao} onChange={(e) => setForm({ ...form, duracao: e.target.value })} placeholder="Ex.: 1:30" inputMode="decimal" />
+                </Field>
               </div>
+              <Field label="Ações tomadas"><Input value={form.acoesTomadas} onChange={(e) => setForm({ ...form, acoesTomadas: e.target.value })} placeholder="opcional" /></Field>
             </>
           )}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Solicitante" hint="quem pediu ou avisou (nome, unidade, telefone)">
-              <Input value={form.solicitante} onChange={(e) => setForm({ ...form, solicitante: e.target.value })} placeholder="Ex.: Sr. Carlos, síndico — (11) 9…" />
-            </Field>
-            <FieldBox label="Local" hint="não está na lista? cadastre por aqui mesmo">
-              <LocalSelect value={form.localId} onChange={(v) => setForm({ ...form, localId: v })} />
-            </FieldBox>
-
-          </div>
+          <Field label="Solicitante" hint="quem pediu ou avisou (nome, unidade, telefone)">
+            <Input value={form.solicitante} onChange={(e) => setForm({ ...form, solicitante: e.target.value })} placeholder="Ex.: Sr. Carlos, síndico — (11) 9…" />
+          </Field>
 
           {/* Data e hora do chamado se ajustam DEPOIS, na edição, por quem tem a permissão —
               na hora de abrir, o campo só atrapalha quem está atendendo alguém. */}
-          {canDatas && !form.jaRealizado && editing !== 'new' && (
+          {canDatas && !form.jaRealizado && (
             <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
               <div className="mb-1.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-300"><CalendarClock size={13} className="text-slate-500" /> Datas do chamado</div>
-              <p className="mb-2 text-[11px] text-slate-500">Para acertar um chamado que foi solicitado antes de alguém abrir. Fica registrado na auditoria.</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Aberto em"><Input type="datetime-local" value={form.createdAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, createdAt: e.target.value })} /></Field>
-                <Field label="Concluído em" hint="vazio = ainda não concluído">
-                  <Input type="datetime-local" value={form.resolvedAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, resolvedAt: e.target.value })} />
+              <p className="mb-2 text-[11px] text-slate-500">
+                {editing === 'new'
+                  ? 'Para o chamado que foi pedido ontem e só agora está sendo aberto. Em branco, vale agora.'
+                  : 'Para acertar um chamado que foi solicitado antes de alguém abrir. Fica registrado na auditoria.'}
+              </p>
+              <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
+                <Field label="Aberto em" hint={editing === 'new' ? 'em branco = agora' : undefined}>
+                  <Input type="datetime-local" value={form.createdAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, createdAt: e.target.value })} />
                 </Field>
+                {/* Chamado que está nascendo não tem conclusão para acertar. */}
+                {editing !== 'new' && (
+                  <Field label="Concluído em" hint="vazio = ainda não concluído">
+                    <Input type="datetime-local" value={form.resolvedAt} max={agoraLocal()} onChange={(e) => setForm({ ...form, resolvedAt: e.target.value })} />
+                  </Field>
+                )}
               </div>
             </div>
           )}

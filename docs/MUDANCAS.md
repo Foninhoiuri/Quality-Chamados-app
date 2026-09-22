@@ -5,6 +5,39 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — janela na frente, lista que atualiza sozinha e serviço já realizado completo
+
+### A caixa de confirmação nascia atrás da janela
+
+Excluir um chamado concluído abria a confirmação **atrás** do chamado: a tela parecia
+travada. As janelas agora se empilham pela ordem em que abrem, não pela ordem em que estão
+escritas no arquivo — vale para toda confirmação do app, não só essa. Junto:
+
+- **O aviso ("excluído", "salvo") passa na frente de qualquer janela.** Ele quase sempre
+  nasce de dentro de uma, e atrás dela não serve para nada.
+- **Os botões do mapa não escapam mais para cima** da barra de navegação e das janelas.
+
+### A lista não esperava mais o F5
+
+Chamado excluído, reaberto ou corrigido continuava na tela de Concluídos até recarregar a
+página, porque o histórico é uma lista à parte. Agora ele se refaz a cada mudança feita no
+app — e só nelas, sem ficar buscando de dez em dez segundos.
+
+### Serviço já realizado
+
+- **O tempo no local entra na hora do lançamento** ("Quanto tempo levou: 1:30"). Antes o
+  aviso mandava lançar as horas depois, num chamado que já nasce concluído — ou seja, não
+  se lançava.
+- **A data de abertura também se ajusta ao abrir o chamado**, para quem tem a permissão de
+  lançamento retroativo. Antes só na edição.
+
+### Abrir chamado
+
+**O local é o primeiro campo** — é a primeira coisa que se pergunta no telefone e é ele que
+decide quem enxerga o chamado. Na lista, cada local aparece como **(ABREV) Nome**.
+
+---
+
 ## 22/09/2026 — mapa de volta em produção, versão por commit e gráfico igual ao do painel
 
 ### O mapa não carregava no servidor publicado

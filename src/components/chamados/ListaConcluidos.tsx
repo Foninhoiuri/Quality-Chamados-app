@@ -52,6 +52,9 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
 }) {
   const showToast = useStore((s) => s.showToast)
   const me = useCurrentUser()
+  // O histórico é uma lista à parte (não vive em `tickets`): sem olhar este contador, o
+  // chamado excluído ou reaberto continuava na tela até a pessoa recarregar a página.
+  const mexidaEmChamado = useStore((s) => s.mexidaEmChamado)
 
   const [historico, setHistorico] = useState<Ticket[] | null>(null)
   const [modo, setModo] = useState<'semana' | 'tudo' | 'custom'>('semana')
@@ -65,7 +68,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
     if (!podeHistorico) return setHistorico([])
     try { setHistorico(await api.ticketsHistory()) } catch { setHistorico([]) }
   }
-  useEffect(() => { carregarHistorico() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [podeHistorico])
+  useEffect(() => { carregarHistorico() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [podeHistorico, mexidaEmChamado])
 
   // O histórico vem cru do servidor; aplica os mesmos filtros da barra de cima.
   const arquivados = useMemo(

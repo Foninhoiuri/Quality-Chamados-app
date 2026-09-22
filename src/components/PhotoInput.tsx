@@ -53,7 +53,7 @@ export function PhotoInput({ photos, onChange, max = 12 }: { photos: string[]; o
       </div>
       <input ref={ref} type="file" accept="image/*" multiple onChange={onPick} className="hidden" />
       {preview && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" onClick={() => setPreview(null)}>
+        <div className="fixed inset-0 z-[900] flex items-center justify-center bg-black/80 p-4" onClick={() => setPreview(null)}>
           <img src={assetUrl(preview)} alt="" className="max-h-full max-w-full rounded-lg" />
         </div>
       )}

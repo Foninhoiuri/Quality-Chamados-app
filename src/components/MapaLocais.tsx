@@ -268,8 +268,10 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
   // dessaturando a base — nada de serviço de mapa pago.
   const escuro = tema !== 'light'
 
+  // `isolate`: os botões flutuantes daqui usam a escala do Leaflet (z 500) e, sem uma
+  // camada própria, subiriam por cima da barra de navegação e das janelas do app.
   return (
-    <div className="relative h-full">
+    <div className="relative isolate h-full">
       {comPino.length === 0 && (
         <div className="pointer-events-none absolute inset-x-2 top-2 z-[500] rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-center text-[11px] text-slate-300 shadow-lg">
           Nenhum local no mapa ainda. Preencha o CEP e o endereço do local — ou use “Localizar no mapa” no cartão dele.

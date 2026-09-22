@@ -39,6 +39,18 @@ const agoraLocal = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/**
+ * "1:30" ou "1,5" → 90 minutos. As duas formas aparecem porque as duas são digitadas: uns
+ * pensam em relógio, outros em hora decimal.
+ */
+export function minutosDoTexto(texto: string): number | null {
+  const d = texto.trim()
+  const hm = /^(\d{1,2}):([0-5]\d)$/.exec(d)
+  if (hm) return Number(hm[1]) * 60 + Number(hm[2]) || null
+  const n = Number(d.replace(',', '.'))
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 60) : null
+}
+
 /** Minutos de uma ida: entre os dois instantes, ou pelo tempo digitado. */
 function minutosDe(v: VisitaForm): number | null {
   if (v.modo === 'horario') {
@@ -46,11 +58,7 @@ function minutosDe(v: VisitaForm): number | null {
     const m = Math.round((new Date(v.saida).getTime() - new Date(v.chegada).getTime()) / 60000)
     return m > 0 ? m : null
   }
-  const d = v.duracao.trim()
-  const hm = /^(\d{1,2}):([0-5]\d)$/.exec(d)
-  if (hm) return Number(hm[1]) * 60 + Number(hm[2]) || null
-  const n = Number(d.replace(',', '.'))
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 60) : null
+  return minutosDoTexto(v.duracao)
 }
 
 /** Tempos que aparecem quase sempre — um toque em vez de digitar. */

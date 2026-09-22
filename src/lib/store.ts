@@ -96,12 +96,22 @@ interface AppState {
   transferirTicket: (id: string, paraId: string | null, motivo?: string) => Promise<void>
   shareTicket: (id: string, userIds: string[]) => Promise<void>
   removeTicket: (id: string) => Promise<void>
+  /**
+   * Sobe a cada mudança que NÓS fazemos num chamado. Quem mantém uma lista própria — o
+   * histórico dos concluídos, que não vive em `tickets` — recarrega olhando este número.
+   * O ciclo de 12s não mexe nele: recarregar o histórico a cada respiro seria desperdício.
+   */
+  mexidaEmChamado: number
 
   setSetting: (key: string, value: string) => Promise<void>
 
   toast: string | null
   showToast: (msg: string) => void
 }
+
+/** Avisa as listas que vivem fora de `tickets` que um chamado mudou de verdade. */
+const marcarMexida = (set: (fn: (s: AppState) => Partial<AppState>) => void) =>
+  set((s) => ({ mexidaEmChamado: s.mexidaEmChamado + 1 }))
 
 export const useStore = create<AppState>()((set, get) => ({
   me: null,
@@ -124,6 +134,7 @@ export const useStore = create<AppState>()((set, get) => ({
   notifications: [],
   settings: {},
   pessoas: [],
+  mexidaEmChamado: 0,
   refreshPessoas: async () => set({ pessoas: await api.pessoas().catch(() => []) }),
 
   boot: async () => {
@@ -277,34 +288,42 @@ export const useStore = create<AppState>()((set, get) => ({
   addTicket: async (input) => {
     await api.createTicket(input)
     await Promise.all([get().refreshTickets(), get().refreshLocais().catch(() => {})])
+    marcarMexida(set)
   },
   updateTicket: async (id, patch) => {
     await api.updateTicket(id, patch)
     await get().refreshTickets()
+    marcarMexida(set)
   },
   acceptTicket: async (id) => {
     await api.acceptTicket(id)
     await get().refreshTickets()
+    marcarMexida(set)
   },
   releaseTicket: async (id) => {
     await api.releaseTicket(id)
     await get().refreshTickets()
+    marcarMexida(set)
   },
   cancelTicket: async (id, motivo) => {
     await api.cancelTicket(id, motivo)
     await get().refreshTickets()
+    marcarMexida(set)
   },
   transferirTicket: async (id, paraId, motivo) => {
     await api.transferirTicket(id, paraId, motivo)
     await get().refreshTickets()
+    marcarMexida(set)
   },
   shareTicket: async (id, userIds) => {
     await api.shareTicket(id, userIds)
     await get().refreshTickets()
+    marcarMexida(set)
   },
   removeTicket: async (id) => {
     await api.deleteTicket(id)
     await get().refreshTickets()
+    marcarMexida(set)
   },
 
   setSetting: async (key, value) => {
