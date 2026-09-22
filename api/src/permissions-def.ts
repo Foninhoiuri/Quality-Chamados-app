@@ -24,6 +24,7 @@ export const PERMISSIONS: PermDef[] = [
   { id: 'gerenciar_chamados', label: 'Editar e mover chamados', module: 'Chamados' },
   { id: 'aceitar_chamados', label: 'Pegar chamados sem responsável', module: 'Chamados' },
   { id: 'registrar_atendimento', label: 'Preencher o atendimento técnico', module: 'Chamados' },
+  { id: 'definir_servico', label: 'Abrir chamado já dizendo o que precisa ser feito', module: 'Chamados' },
   { id: 'corrigir_atendimento', label: 'Corrigir atendimento e devolver chamado de outro técnico', module: 'Chamados' },
   { id: 'concluir_chamados', label: 'Concluir chamados', module: 'Chamados' },
   { id: 'reabrir_chamados', label: 'Reabrir chamados concluídos', module: 'Chamados' },
@@ -78,7 +79,7 @@ const FORA_DO_GESTOR = new Set([
   'gerenciar_chamados', 'aceitar_chamados', 'registrar_atendimento', 'corrigir_atendimento',
   'concluir_chamados', 'reabrir_chamados', 'excluir_chamados', 'cancelar_chamados',
   'compartilhar_chamados', 'ajustar_datas_chamado', 'gerenciar_status_chamados',
-  'editar_concluidos',
+  'editar_concluidos', 'definir_servico',
 ])
 
 export const ROLES: { id: string; name: string; color: string; system?: boolean; permissions: string[] }[] = [
@@ -89,7 +90,7 @@ export const ROLES: { id: string; name: string; color: string; system?: boolean;
     permissions: [
       'ver_dashboard', 'ver_locais',
       'ver_chamados', 'ver_todos_chamados', 'criar_chamados', 'gerenciar_chamados', 'aceitar_chamados',
-      'registrar_atendimento', 'concluir_chamados', 'compartilhar_chamados', 'anexar_fotos_chamado',
+      'registrar_atendimento', 'definir_servico', 'concluir_chamados', 'compartilhar_chamados', 'anexar_fotos_chamado',
       'comentar_chamados', 'ver_arquivados',
       'ver_registros', 'criar_registros',
     ],
@@ -111,4 +112,4 @@ export const ROLES_ANTIGOS = ['role-solicitante', 'role-leitura']
  * Sobe quando a definição dos perfis-semente muda de forma que precisa ser aplicada
  * por inteiro (não só somando permissão nova). Ver bootstrap.ts.
  */
-export const ROLES_VERSAO = '5'
+export const ROLES_VERSAO = '6'

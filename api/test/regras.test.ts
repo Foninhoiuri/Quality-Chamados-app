@@ -395,3 +395,27 @@ describe('tipos de local', () => {
     expect(depois.tipo).toBe('')
   })
 })
+
+describe('o que precisa ser feito (serviço na abertura)', () => {
+  it('operador não define o serviço; técnico define', async () => {
+    const semPermissao = await app.inject({
+      method: 'POST', url: '/tickets', headers: comToken(operador),
+      payload: { title: 'Portão travado', possivelSolucao: 'trocar o motor' },
+    })
+    expect(semPermissao.statusCode).toBe(403)
+
+    const comPermissao = await app.inject({
+      method: 'POST', url: '/tickets', headers: comToken(tecnico),
+      payload: { title: 'Portão travado 2', possivelSolucao: 'trocar o motor e regular o fim de curso' },
+    })
+    expect(comPermissao.statusCode).toBe(200)
+    expect(comPermissao.json().possivelSolucao).toBe('trocar o motor e regular o fim de curso')
+  })
+
+  it('sem o campo, o operador abre chamado normalmente', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/tickets', headers: comToken(operador), payload: { title: 'Lâmpada queimada' },
+    })
+    expect(res.statusCode).toBe(200)
+  })
+})

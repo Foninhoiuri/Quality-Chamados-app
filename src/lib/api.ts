@@ -128,7 +128,7 @@ export const api = {
   acceptTicket: (id: string) => req<Ticket>('POST', `/tickets/${id}/accept`),
   /** Devolve o chamado para a fila (quem pegou, ou admin/gestor). */
   releaseTicket: (id: string) => req<Ticket>('POST', `/tickets/${id}/release`),
-  saveAtendimento: (id: string, body: Partial<Pick<Ticket, 'analise' | 'possivelSolucao' | 'solucao' | 'acoesTomadas' | 'visitas' | 'itens' | 'donePhotos'>>) =>
+  saveAtendimento: (id: string, body: Partial<Pick<Ticket, 'analise' | 'possivelSolucao' | 'solucao' | 'acoesTomadas' | 'visitas' | 'itens' | 'startPhotos' | 'donePhotos'>>) =>
     req<Ticket>('PATCH', `/tickets/${id}/atendimento`, body),
   archiveTicket: (id: string) => req<Ticket>('POST', `/tickets/${id}/archive`),
   /** Tira do histórico e devolve para a coluna de concluídos. */

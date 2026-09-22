@@ -100,6 +100,13 @@ export const AJUDA: AjudaSecao[] = [
         nota: 'O chamado nasce sem responsável, na fila. Não é preciso escolher técnico.',
       },
       {
+        titulo: 'Dizer o que precisa ser feito',
+        perm: ['definir_servico'],
+        texto:
+          'Quando você já sabe o serviço — passou no local, viu o problema, sabe a peça — escreva em "O que precisa ser feito". É a instrução que o técnico que pegar vai ler antes de sair, e ela aparece em destaque dentro do chamado até ele terminar.',
+        nota: 'Não é a solução: a solução é o que se escreve depois, no atendimento, contando o que resolveu de verdade.',
+      },
+      {
         titulo: 'Criar o local na hora',
         perm: ['gerenciar_locais'],
         texto:
@@ -198,11 +205,11 @@ export const AJUDA: AjudaSecao[] = [
         titulo: 'Preencher o atendimento',
         perm: ['registrar_atendimento'],
         texto:
-          'É o relatório do serviço, e é dele que saem as horas e o relatório do mês. Abra por "Preencher atendimento" dentro do chamado.',
+          'É o relatório do serviço, e é dele que saem as horas e o relatório do mês. O cartão do chamado tem o botão da chave de boca, que abre direto — de dentro do chamado, é "Preencher atendimento".',
         passos: [
           'Solução: o que foi feito para resolver. É o campo que a conclusão exige.',
           'Idas ao local: as marcações de chegada e saída, que dá para corrigir à mão — por horário ou informando só quanto tempo ficou.',
-          'Fotos do serviço: o depois, separado das fotos do problema.',
+          'Fotos: "antes de começar" (como você encontrou) e "depois" (como você deixou) — o par é o que sustenta o serviço numa discussão meses depois. As fotos de quem abriu o chamado ficam em outro lugar, no corpo do chamado.',
           'Itens usados: o que foi trocado ou comprado, com quantidade e valor.',
           'Análise, possível solução e ações tomadas: ficam recolhidos, para quando o caso pede mais texto.',
         ],

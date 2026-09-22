@@ -5,6 +5,47 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 22/09/2026 — cores por estado, fotos de antes e depois, serviço na abertura
+
+### Cada estado do chamado tem a sua cor
+
+**Âmbar espera, azul está sendo feito, verde terminou** — e agora é a mesma cor em todo
+lugar: a etiqueta da movimentação recente, o anel do dashboard, os gráficos, o cabeçalho
+das colunas do quadro, as abas do celular e a situação no relatório.
+
+Antes "aberto" e "em andamento" saíam os dois vermelhos. O motivo: neste tema a paleta
+`sky` foi trocada pelo vermelho da marca, então o azul de "em andamento" virava vermelho
+sem ninguém perceber. O vermelho volta a ser o que era: a cor das ações, não de um estado.
+
+### As fotos do técnico agora são duas
+
+**"Antes de começar"** (como encontrou) e **"Depois"** (como deixou), lado a lado no
+atendimento. As fotos de quem abriu o chamado continuam em separado, no corpo do chamado.
+É o par antes/depois que sustenta o serviço numa conversa meses depois.
+
+### "O que precisa ser feito", na abertura
+
+Quem já sabe o serviço escreve na hora de abrir, e o texto aparece em destaque dentro do
+chamado até ele terminar — é a instrução que o técnico lê antes de sair. **É uma permissão
+nova** ("Abrir chamado já dizendo o que precisa ser feito"), ligada por padrão para
+Administrador e Técnico; dá para ligar em qualquer perfil na tela de permissões.
+
+### Miudezas que economizam toque
+
+- **Atendimento direto do cartão** em Em andamento (o botão da chave de boca): era preciso
+  abrir o chamado e clicar mais duas vezes.
+- **O aviso de localização bloqueada virou botão**: tocar nele pede a permissão de novo. Se
+  o bloqueio for definitivo, o aviso passa a dizer onde desfazer (o cadeado do navegador).
+- **Local só com CEP agora entra no mapa** — "Localizar no mapa" recusava sem rua e cidade,
+  embora a busca saiba achar pelo CEP.
+- **No cartão do local, dois botões em vez de um link**: "Ver no mapa" leva ao ponto no mapa
+  da própria tela, e "Google Maps" abre lá fora, que é o que inicia a navegação no carro.
+- **Tipos de local têm sigla** (COND, COM, OBRA): é ela que aparece dentro do chamado, ao
+  lado do nome do prédio.
+- Na lista de locais do chamado, cada um aparece como **ABREV - Nome**.
+
+---
+
 ## 22/09/2026 — tipos de local
 
 Locais agora têm **tipo** — condomínio, comercial, residencial, obra — e a lista é editável

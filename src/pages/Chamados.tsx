@@ -5,7 +5,7 @@ import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, 
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
 import { api, assetUrl } from '@/lib/api'
-import { esperaDesde, FASES, faseDoTicket, paraInputLocal, parseStatuses } from '@/lib/tickets'
+import { coresDoStatus, esperaDesde, FASES, faseDoTicket, paraInputLocal, parseStatuses } from '@/lib/tickets'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
 import { PhotoInput } from '@/components/PhotoInput'
 import { AtendimentoTecnico, BotaoPonto, minutosDoTexto, ModalAtendimento } from '@/components/AtendimentoTecnico'
@@ -15,6 +15,7 @@ import { CompartilharChamado } from '@/components/CompartilharChamado'
 import { ListaConcluidos } from '@/components/chamados/ListaConcluidos'
 import { aplicarFiltros, FiltrosChamados, FILTRO_VAZIO, type FiltroChamados } from '@/components/chamados/FiltrosChamados'
 import { AvatarPessoa } from '@/components/Pessoa'
+import { SiglaLocal } from '@/components/SiglaLocal'
 import type { FaseChamado, Registro, TecnicoRef, Ticket, TicketStatus, TicketStatusDef, Visita } from '@/lib/types'
 
 function slugify(s: string) {
@@ -35,6 +36,8 @@ interface TForm {
   realizadoEm: string
   /** Tempo no local do serviço já realizado ("1:30" ou "1,5"): vira a ida do atendimento. */
   duracao: string
+  /** O que precisa ser feito — escrito por quem abre, para quem for pegar. */
+  servico: string
   solucao: string
   acoesTomadas: string
   /** Datas do chamado (só para quem tem `ajustar_datas_chamado`). */
@@ -43,7 +46,7 @@ interface TForm {
 }
 const emptyForm = (firstStatus: string, localId = ''): TForm => ({
   title: '', description: '', solicitante: '', status: firstStatus, localId, photos: [],
-  jaRealizado: false, realizadoEm: agoraLocal(), duracao: '', solucao: '', acoesTomadas: '', createdAt: '', resolvedAt: '',
+  jaRealizado: false, realizadoEm: agoraLocal(), duracao: '', servico: '', solucao: '', acoesTomadas: '', createdAt: '', resolvedAt: '',
 })
 /** Campos de data do chamado são data E hora: "ontem" sem a hora não diz quando foi. */
 const agoraLocal = () => paraInputLocal(new Date().toISOString())
@@ -80,6 +83,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const canCancel = useCan('cancelar_chamados')
   const canShare = useCan('compartilhar_chamados')
   const canDatas = useCan('ajustar_datas_chamado')
+  const canServico = useCan('definir_servico')
   const canHistorico = useCan('ver_arquivados')
   const canEditarConcluido = useCan('editar_concluidos')
   const location = useLocation()
@@ -327,7 +331,10 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
                 acoesTomadas: form.acoesTomadas.trim() || null,
                 visitas: idaDoServico(),
               }
-            : canDatas && form.createdAt ? { createdAt: paraIso(form.createdAt) } : {}),
+            : {
+                ...(canServico && form.servico.trim() ? { possivelSolucao: form.servico.trim() } : {}),
+                ...(canDatas && form.createdAt ? { createdAt: paraIso(form.createdAt) } : {}),
+              }),
         })
         // Serviço antigo nasce concluído com data velha: o quadro não o mostra, o histórico sim.
         const velho = jaRealizado && Date.now() - new Date(form.realizadoEm).getTime() > 7 * 24 * 3600 * 1000
@@ -388,6 +395,12 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             onDelete={() => setDeleting(t)}
             onCancel={() => setCanceling(t)}
             onMover={fase === 'andamento' && canManage && colunas.length > 1 ? () => setMovendo(t) : undefined}
+            // Preencher o atendimento é o que o técnico mais faz — do cartão, num toque.
+            onAtender={
+              fase === 'andamento' && canAtender && !!t.assigneeId && podeMexer(t) && (ehMeu(t) || canCorrigir)
+                ? () => setAtendendo(t)
+                : undefined
+            }
             onChat={() => setConversando(t)}
             onDetail={() => openDetail(t)}
           />
@@ -428,11 +441,11 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
                       onClick={() => setColunaAtiva(c.key)}
                       aria-pressed={ativa}
                       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium ${
-                        ativa ? 'border-red-700 bg-red-500/10 text-red-300' : 'border-slate-800 text-slate-400'
+                        ativa ? coresDoStatus(statuses, c.key).ativo : 'border-slate-800 text-slate-400'
                       }`}
                     >
                       {c.label}
-                      <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${ativa ? 'bg-red-500/20' : 'bg-slate-800'}`}>{n}</span>
+                      <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${ativa ? 'bg-slate-900/40' : 'bg-slate-800'}`}>{n}</span>
                     </button>
                   )
                 })}
@@ -460,8 +473,10 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
                 >
                   {/* Sem caixa em volta: a tela já é só esta fase, o cartão fica solto. */}
                   <div className="mb-2 flex items-center gap-2 px-1">
+                    {/* O pontinho da fase: o quadro inteiro na cor do estado em que está. */}
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${coresDoStatus(statuses, col.key).ponto}`} />
                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">{col.label}</span>
-                    <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-400">{items.length}</span>
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${coresDoStatus(statuses, col.key).badge}`}>{items.length}</span>
                     <span className="h-px flex-1 bg-slate-800" />
                   </div>
                   <div className="space-y-2">
@@ -525,6 +540,14 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           <Field label={form.jaRealizado ? 'Contexto' : 'O que aconteceu'}>
             <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={form.jaRealizado ? 2 : 4} placeholder={form.jaRealizado ? 'Por que você estava no local, o que encontrou…' : 'Relate o problema: o que foi informado, desde quando, onde exatamente…'} />
           </Field>
+
+          {/* Quem já sabe o serviço escreve aqui: é a instrução que o técnico lê antes de
+              sair. Não é a solução — a solução é o que ele escreve quando termina. */}
+          {!form.jaRealizado && canServico && editing === 'new' && (
+            <Field label="O que precisa ser feito" hint="opcional — o serviço que você já sabe que este chamado exige">
+              <Textarea rows={2} value={form.servico} onChange={(e) => setForm({ ...form, servico: e.target.value })} placeholder="Ex.: trocar o motor do portão social e regular o fim de curso" />
+            </Field>
+          )}
 
           {form.jaRealizado && (
             <>
@@ -834,6 +857,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-slate-400">
         <span className="inline-flex items-center gap-1">
           <Building2 size={12} className="text-slate-500" />
+          <SiglaLocal localId={t.localId} />
           {t.localName ?? 'sem local'}
         </span>
         <span className="text-slate-700">·</span>
@@ -884,6 +908,15 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
 
       {t.description && <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-200">{t.description}</p>}
 
+      {/* A instrução de serviço, escrita por quem abriu. Fica em destaque enquanto o
+          chamado não termina: é o que o técnico lê antes de sair. */}
+      {t.possivelSolucao && !concluido && (
+        <div className="rounded-lg border border-blue-500/25 bg-blue-500/[0.06] px-3 py-2">
+          <div className="mb-0.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-blue-300"><Wrench size={12} /> O que precisa ser feito</div>
+          <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-200">{t.possivelSolucao}</p>
+        </div>
+      )}
+
       <div>
         <div className="mb-1 text-[11px] font-medium text-slate-400">Fotos do problema</div>
         <PhotoInput photos={t.photos ?? []} />
@@ -931,7 +964,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onChat, onDetail }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onAtender, onChat, onDetail }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
@@ -944,11 +977,13 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
   onCancel: () => void
   /** Mover para outra coluna sem arrastar (celular). */
   onMover?: () => void
+  /** Abre o atendimento direto do cartão: é o que o técnico faz o dia inteiro. */
+  onAtender?: () => void
   /** Abre a conversa do chamado — sem precisar pegar o chamado nem abrir o detalhe. */
   onChat: () => void
   onDetail: () => void
 }) {
-  const allPhotos = [...(t.photos ?? []), ...(t.donePhotos ?? [])]
+  const allPhotos = [...(t.photos ?? []), ...(t.startPhotos ?? []), ...(t.donePhotos ?? [])]
   const thumbs = allPhotos.slice(0, 4)
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn() }
   return (
@@ -989,7 +1024,11 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
       </div>
 
       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
-        {t.localName && <span className="inline-flex items-center gap-1"><Building2 size={11} /> {t.localName}</span>}
+        {t.localName && (
+          <span className="inline-flex items-center gap-1">
+            <Building2 size={11} /> <SiglaLocal localId={t.localId} /> {t.localName}
+          </span>
+        )}
         {!!t.commentCount && <span className="inline-flex items-center gap-1"><MessageSquare size={11} /> {t.commentCount}</span>}
         {!!t.minutosTotais && <span className="inline-flex items-center gap-1" title="Tempo no local"><Clock size={11} /> {fmtMinutos(t.minutosTotais)}</span>}
         {t.solicitante && <span className="inline-flex min-w-0 items-center gap-1 truncate"><Phone size={11} /> {t.solicitante}</span>}
@@ -1033,11 +1072,21 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
             {etapa.icone === 'pegar' ? <HandHelping size={14} /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />} {etapa.label}
           </button>
         )}
+        {onAtender && (
+          <button
+            onClick={stop(onAtender)}
+            title="Preencher o atendimento"
+            aria-label="Preencher o atendimento"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700"
+          >
+            <Wrench size={14} />
+          </button>
+        )}
         <button
           onClick={stop(onChat)}
           title="Conversa do chamado"
           aria-label="Conversa do chamado"
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapa ? '' : 'flex-1'}`}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapa || onAtender ? '' : 'flex-1'}`}
         >
           <MessagesSquare size={14} />
           {t.commentCount ? <span className="tabular-nums">{t.commentCount}</span> : !etapa && 'Conversa'}

@@ -5,7 +5,7 @@ import { Ticket, ArrowRight, Loader2, HandHelping, ArrowUpRight, ArrowDownRight,
 import { Card, PageHeader } from '@/components/ui'
 import { useStore, useCan } from '@/lib/store'
 import { api } from '@/lib/api'
-import { esperaDesde, parseStatuses } from '@/lib/tickets'
+import { coresDoStatus, esperaDesde, parseStatuses } from '@/lib/tickets'
 import { cn, fmtMinutos, tempoAtras } from '@/lib/utils'
 import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { CORES_ANDAMENTO, SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
@@ -83,10 +83,11 @@ function Agora({ itens }: { itens: { label: string; valor: number; to?: string; 
   )
 }
 
-/** Cor de cada situação: fila em vermelho, atendimento em azul, concluído em verde. */
+/** A mesma cor dos badges (ver CORES_FASE): âmbar espera, azul atende, verde terminou. */
 function corDaFase(fase: string, i: number) {
-  if (fase === 'aberto') return SERIE.abertos.color
-  if (fase === 'concluido') return SERIE.concluidos.color
+  if (fase === 'aberto') return 'var(--fase-aberto)'
+  if (fase === 'concluido') return 'var(--fase-concluido)'
+  // Em andamento pode ter várias colunas: tons de azul para separar uma da outra.
   return CORES_ANDAMENTO[i % CORES_ANDAMENTO.length]
 }
 
@@ -166,14 +167,8 @@ export default function Dashboard() {
 
   const statuses = parseStatuses(settings)
   const statusLabel = (key: string) => statuses.find((s) => s.key === key)?.label ?? key
-  /** A etiqueta usa a cor da fase: fila em vermelho, atendimento em azul, concluído em verde. */
-  const statusFase = (key: string) => statuses.find((s) => s.key === key)?.fase ?? 'andamento'
-  const corDoBadge = (key: string) => {
-    const f = statusFase(key)
-    if (f === 'aberto') return 'bg-red-500/10 text-red-300'
-    if (f === 'concluido') return 'bg-emerald-500/10 text-emerald-300'
-    return 'bg-sky-500/10 text-sky-300'
-  }
+  /** A cor da etiqueta é a da fase, a mesma do resto do app (ver CORES_FASE). */
+  const corDoBadge = (key: string) => coresDoStatus(statuses, key).badge
   const recentes = [...tickets].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 6)
   const primeiroNome = me?.name.split(' ')[0] ?? ''
   const c = ov?.comparativo

@@ -385,6 +385,7 @@ async function shapeTickets(tickets: any[]) {
     ...t,
     localName: t.localId ? locais[t.localId] : undefined,
     photos: parsePhotos(t.photos),
+    startPhotos: parsePhotos(t.startPhotos),
     donePhotos: parsePhotos(t.donePhotos),
     visitas: parseJsonArray(t.visitas),
     itens: parseJsonArray(t.itens),
@@ -780,7 +781,9 @@ app.post('/locais/:id/geocode', async (req: any, reply) => {
   if (outOfScope(u, req.params.id, reply)) return
   const l = await prisma.local.findUnique({ where: { id: req.params.id } })
   if (!l) return reply.code(404).send()
-  if (!l.address && !l.city) return reply.code(400).send({ error: 'cadastre o endereço do local primeiro' })
+  // Só o CEP já acha o lugar (o Nominatim busca por ele) — exigir rua deixava local
+  // cadastrado só com CEP fora do mapa para sempre.
+  if (!l.address && !l.city && !l.cep) return reply.code(400).send({ error: 'cadastre o endereço ou ao menos o CEP do local' })
   const coord = await geocodificar(l)
   if (!coord) return reply.code(422).send({ error: 'não foi possível achar este endereço no mapa — confira a rua, o número e a cidade' })
   const atualizado = await prisma.local.update({ where: { id: l.id }, data: coord })
@@ -1044,9 +1047,22 @@ app.post('/tickets', async (req: any, reply) => {
     const i = cleanItens(b.itens ?? [])
     if (typeof i === 'string') return reply.code(400).send({ error: i })
     extra.itens = JSON.stringify(i)
-    if (b.donePhotos?.length && !u.perms.has('anexar_fotos_chamado')) return reply.code(403).send({ error: 'sem permissão para anexar fotos' })
+    if ((b.donePhotos?.length || b.startPhotos?.length) && !u.perms.has('anexar_fotos_chamado')) return reply.code(403).send({ error: 'sem permissão para anexar fotos' })
+    extra.startPhotos = JSON.stringify(cleanPhotos(b.startPhotos))
     extra.donePhotos = JSON.stringify(cleanPhotos(b.donePhotos))
   }
+  /**
+   * O QUE PRECISA SER FEITO: quem já sabe o serviço (o técnico que passou no local, o
+   * gestor que mandou orçar) escreve na abertura. Não é a solução — é a instrução que o
+   * técnico que pegar vai ler antes de sair. Guarda no mesmo campo de "possível solução",
+   * que é exatamente isso: o que se espera que resolva.
+   */
+  const servico = String(b.possivelSolucao ?? '').trim()
+  if (servico) {
+    if (!u.perms.has('definir_servico')) return reply.code(403).send({ error: 'sem permissão para definir o serviço do chamado' })
+    extra.possivelSolucao = servico.slice(0, 8000)
+  }
+
   if (quando) extra.createdAt = quando
 
   const t = await prisma.ticket.create({
@@ -1105,7 +1121,7 @@ app.patch('/tickets/:id', async (req: any, reply) => {
       return reply.code(403).send({ error: 'sem permissão para reabrir chamados' })
     }
   }
-  if (('photos' in b || 'donePhotos' in b) && !u.perms.has('anexar_fotos_chamado')) {
+  if (('photos' in b || 'donePhotos' in b || 'startPhotos' in b) && !u.perms.has('anexar_fotos_chamado')) {
     return reply.code(403).send({ error: 'sem permissão para anexar fotos' })
   }
   // Responsável não se define aqui: só o técnico pegando o chamado (/accept).
@@ -1141,10 +1157,11 @@ app.patch('/tickets/:id', async (req: any, reply) => {
     orphans.push(...droppedPhotos(parsePhotos(before.photos), next))
     data.photos = JSON.stringify(next)
   }
-  if ('donePhotos' in b) {
-    const next = cleanPhotos(b.donePhotos)
-    orphans.push(...droppedPhotos(parsePhotos(before.donePhotos), next))
-    data.donePhotos = JSON.stringify(next)
+  for (const campo of ['startPhotos', 'donePhotos'] as const) {
+    if (!(campo in b)) continue
+    const next = cleanPhotos(b[campo])
+    orphans.push(...droppedPhotos(parsePhotos(before[campo]), next))
+    data[campo] = JSON.stringify(next)
   }
   const statusChanged = 'status' in data && data.status !== before.status
   if (statusChanged) {
@@ -1484,11 +1501,12 @@ app.patch('/tickets/:id/atendimento', async (req: any, reply) => {
     data.itens = JSON.stringify(i)
   }
   const orphans: string[] = []
-  if ('donePhotos' in b) {
+  for (const campo of ['startPhotos', 'donePhotos'] as const) {
+    if (!(campo in b)) continue
     if (!u.perms.has('anexar_fotos_chamado')) return reply.code(403).send({ error: 'sem permissão para anexar fotos' })
-    const next = cleanPhotos(b.donePhotos)
-    orphans.push(...droppedPhotos(parsePhotos(before.donePhotos), next))
-    data.donePhotos = JSON.stringify(next)
+    const next = cleanPhotos(b[campo])
+    orphans.push(...droppedPhotos(parsePhotos(before[campo]), next))
+    data[campo] = JSON.stringify(next)
   }
   const t = await prisma.ticket.update({ where: { id: before.id }, data })
   await registrarNaLinhaDoTempo(u, t.id, before, data)
@@ -1511,7 +1529,7 @@ app.delete('/tickets/:id', async (req: any, reply) => {
     return reply.code(403).send({ error: 'sem permissão para excluir este chamado' })
   }
   const t = await prisma.ticket.delete({ where: { id: req.params.id } })
-  deleteUploads([...parsePhotos(t.photos), ...parsePhotos(t.donePhotos)]).catch(() => {})
+  deleteUploads([...parsePhotos(t.photos), ...parsePhotos(t.startPhotos), ...parsePhotos(t.donePhotos)]).catch(() => {})
   await audit(u, 'excluir', 'chamado', t.title, undefined, t.code)
   return { ok: true }
 })
@@ -1931,7 +1949,8 @@ app.get('/reports/monthly', async (req: any, reply) => {
     horasPorLocal,
     itens,
     registrosPorTipo: ['ocorrencia', 'solicitacao', 'informacao'].map((tipo) => ({ tipo, total: registrosMes.filter((r) => r.tipo === tipo).length })),
-    porStatus: statuses.map((s) => ({ label: s.label, total: abertos.filter((t) => t.status === s.key).length })),
+    // Com a chave e a fase o relatório pinta cada situação com a cor dela, igual ao resto.
+    porStatus: statuses.map((s) => ({ key: s.key, label: s.label, fase: s.fase ?? 'andamento', total: abertos.filter((t) => t.status === s.key).length })),
     porResponsavel,
     porLocal,
     porDia,
@@ -2003,10 +2022,12 @@ app.patch('/settings/:key', async (req: any, reply) => {
     let arr: any
     try { arr = JSON.parse(value) } catch { return reply.code(400).send({ error: 'lista de tipos inválida (JSON)' }) }
     if (!Array.isArray(arr)) return reply.code(400).send({ error: 'lista de tipos inválida' })
-    const list: TipoRegistroDef[] = arr.slice(0, 12).map((x: any) => ({
+    const list = arr.slice(0, 12).map((x: any) => ({
       key: String(x.key ?? '').slice(0, 40),
       label: String(x.label ?? '').trim().slice(0, 40),
       color: /^#[0-9a-fA-F]{6}$/.test(String(x.color ?? '')) ? String(x.color) : '#a1a1aa',
+      // Sigla: é ela que cabe dentro do chamado, onde o nome inteiro não entra.
+      abrev: String(x.abrev ?? '').trim().toUpperCase().slice(0, 6),
     }))
     if (list.some((t) => !t.key || !t.label)) return reply.code(400).send({ error: 'todo tipo precisa de nome' })
     value = JSON.stringify(list)

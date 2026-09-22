@@ -79,9 +79,9 @@ export function LocalSelect({ value, onChange, allowEmpty = true, className }: {
     <div className={`flex items-center gap-1.5 ${className ?? ''}`}>
       <Select className="w-full min-w-0" value={value} onValueChange={onChange} aria-label="Local">
         {allowEmpty && <option value="">— nenhum —</option>}
-        {/* "(CEN) Ed. Central": a abreviação é como o local é chamado no rádio e no
+        {/* "CEN - Ed. Central": a abreviação é como o local é chamado no rádio e no
             relatório, e é por ela que se acha na lista comprida. */}
-        {locais.map((l) => (<option key={l.id} value={l.id}>{l.code ? `(${l.code}) ${l.name}` : l.name}</option>))}
+        {locais.map((l) => (<option key={l.id} value={l.id}>{l.code ? `${l.code} - ${l.name}` : l.name}</option>))}
       </Select>
       {podeCriar && (
         <button

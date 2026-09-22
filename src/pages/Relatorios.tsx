@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
 import { api } from '@/lib/api'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
+import { CORES_FASE } from '@/lib/tickets'
 import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
 import type { MonthlyReport } from '@/lib/types'
@@ -273,8 +274,11 @@ export default function Relatorios() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Secao titulo="Situação atual dos abertos no mês">
               <div className="flex flex-wrap gap-1.5">
+                {/* A mesma cor de fase dos badges do resto do app. */}
                 {dados.porStatus.map((s) => (
-                  <span key={s.label} className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{s.label}: <span className="font-medium tabular-nums text-slate-100">{s.total}</span></span>
+                  <span key={s.key ?? s.label} className={`rounded-full px-2 py-0.5 text-[11px] ${CORES_FASE[s.fase ?? 'andamento'].badge}`}>
+                    {s.label}: <span className="font-medium tabular-nums">{s.total}</span>
+                  </span>
                 ))}
               </div>
             </Secao>

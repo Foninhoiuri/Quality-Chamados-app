@@ -6,6 +6,7 @@ import { PhotoInput } from '@/components/PhotoInput'
 import { AvatarPessoa } from '@/components/Pessoa'
 import { HistoricoAtendimento, textoDaIda } from '@/components/AtendimentoTecnico'
 import { useStore, useCurrentUser } from '@/lib/store'
+import { CORES_FASE } from '@/lib/tickets'
 import { aplicarFiltros, type FiltroChamados } from './FiltrosChamados'
 import { api } from '@/lib/api'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
@@ -207,7 +208,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-mono text-[11px] text-red-400">{t.code}</span>
                               <span className="min-w-0 truncate text-sm font-medium text-slate-100">{t.title}</span>
-                              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">{labelOf(t.status)}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] ${CORES_FASE.concluido.badge}`}>{labelOf(t.status)}</span>
                             </div>
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
                               {t.localName && <span className="inline-flex items-center gap-1"><Building2 size={11} /> {t.localName}</span>}
@@ -351,7 +352,7 @@ function ConteudoConcluido({ t, podeEditar, onDetail }: {
       </div>
     </div>
   
-    {!!(t.photos?.length || t.donePhotos?.length) && (
+    {!!(t.photos?.length || t.startPhotos?.length || t.donePhotos?.length) && (
       <div className="space-y-2">
         {!!t.photos?.length && (
           <div>
@@ -359,9 +360,15 @@ function ConteudoConcluido({ t, podeEditar, onDetail }: {
             <PhotoInput photos={t.photos} />
           </div>
         )}
+        {!!t.startPhotos?.length && (
+          <div>
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Antes de começar</div>
+            <PhotoInput photos={t.startPhotos} />
+          </div>
+        )}
         {!!t.donePhotos?.length && (
           <div>
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Fotos finais</div>
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Depois</div>
             <PhotoInput photos={t.donePhotos} />
           </div>
         )}

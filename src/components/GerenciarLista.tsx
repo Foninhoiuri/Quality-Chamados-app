@@ -10,7 +10,7 @@ import type { TipoRegistroDef } from '@/lib/types'
  * Arrastar para reordenar, renomear no lugar, cor ao lado e o aviso do que acontece com
  * quem estava na etiqueta apagada. Uma tela só para aprender.
  */
-export function GerenciarLista({ titulo, ajuda, placeholder, itens, contagem, aviso, permitirVazia, onClose, onSave }: {
+export function GerenciarLista({ titulo, ajuda, placeholder, itens, contagem, aviso, permitirVazia, comAbreviacao, onClose, onSave }: {
   titulo: string
   ajuda: string
   placeholder: string
@@ -21,6 +21,8 @@ export function GerenciarLista({ titulo, ajuda, placeholder, itens, contagem, av
   aviso: (quantos: number, nomes: string, primeiro: string) => string
   /** Lista vazia é aceitável? (tipos de local, sim; categorias de registro, não.) */
   permitirVazia?: boolean
+  /** Mostra o campo da sigla curta — o que aparece onde não cabe o nome inteiro. */
+  comAbreviacao?: boolean
   onClose: () => void
   onSave: (list: TipoRegistroDef[]) => void
 }) {
@@ -36,7 +38,12 @@ export function GerenciarLista({ titulo, ajuda, placeholder, itens, contagem, av
     if (!l) return
     let key = slug(l) || `item-${list.length + 1}`
     if (list.some((t) => t.key === key)) key = `${key}-${list.length + 1}`
-    setList([...list, { key, label: l, color: CORES_CATEGORIA[list.length % CORES_CATEGORIA.length] }])
+    setList([...list, {
+      key,
+      label: l,
+      color: CORES_CATEGORIA[list.length % CORES_CATEGORIA.length],
+      ...(comAbreviacao ? { abrev: l.slice(0, 4).toUpperCase() } : {}),
+    }])
     setLabel('')
   }
   const troca = (i: number, p: Partial<TipoRegistroDef>) => setList(list.map((t, j) => (j === i ? { ...t, ...p } : t)))
@@ -89,6 +96,16 @@ export function GerenciarLista({ titulo, ajuda, placeholder, itens, contagem, av
                 className="h-7 w-7 shrink-0 cursor-pointer rounded border border-slate-700 bg-transparent p-0.5"
               />
               <Input value={t.label} onChange={(e) => troca(i, { label: e.target.value })} className="flex-1" aria-label="Nome" />
+              {comAbreviacao && (
+                <Input
+                  value={t.abrev ?? ''}
+                  onChange={(e) => troca(i, { abrev: e.target.value.toUpperCase().slice(0, 6) })}
+                  className="w-16 shrink-0 text-center font-mono uppercase"
+                  placeholder="SIGLA"
+                  aria-label={`Sigla de ${t.label}`}
+                  title="Sigla que aparece dentro do chamado"
+                />
+              )}
               {(contagem[t.key] ?? 0) > 0 && <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">{contagem[t.key]}</span>}
               {podeRemover && (
                 <button onClick={() => setList(list.filter((_, j) => j !== i))} className="shrink-0 rounded p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-400" title="Remover"><X size={14} /></button>

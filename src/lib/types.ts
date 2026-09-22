@@ -33,6 +33,8 @@ export interface Ticket {
   /** Técnicos de apoio: acompanham o chamado; quem preenche o atendimento é o responsável. */
   sharedWith?: TecnicoRef[]
   photos?: string[]
+  /** Fotos do técnico ao CHEGAR (como encontrou) e ao SAIR (como deixou). */
+  startPhotos?: string[]
   donePhotos?: string[]
   // atendimento técnico
   analise?: string | null
@@ -101,6 +103,8 @@ export interface TipoRegistroDef {
   key: string
   label: string
   color: string
+  /** Sigla curta (só os tipos de local usam): é ela que aparece dentro do chamado. */
+  abrev?: string
 }
 
 export interface Registro {
@@ -267,7 +271,7 @@ export interface MonthlyReport {
   horasPorLocal: { nome: string; minutos: number; chamados: number }[]
   itens: { descricao: string; tipo: 'trocado' | 'comprado'; quantidade: number; valorTotal: number; chamados: string[] }[]
   registrosPorTipo: { tipo: TipoRegistro; total: number }[]
-  porStatus: { label: string; total: number }[]
+  porStatus: { key: string; label: string; fase: FaseChamado; total: number }[]
   porResponsavel: { nome: string; concluidos: number; mediaHoras: number | null }[]
   porLocal: { nome: string; abertos: number; emAberto: number }[]
   porDia: { dia: string; abertos: number; concluidos: number }[]

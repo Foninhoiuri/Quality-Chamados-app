@@ -6,10 +6,10 @@ import type { TipoRegistroDef } from './types'
  * `local_tipos`, editável na própria tela de Locais.
  */
 export const TIPOS_LOCAL_PADRAO: TipoRegistroDef[] = [
-  { key: 'condominio', label: 'Condomínio', color: '#38bdf8' },
-  { key: 'comercial', label: 'Comercial', color: '#fbbf24' },
-  { key: 'residencial', label: 'Residencial', color: '#34d399' },
-  { key: 'obra', label: 'Obra', color: '#f472b6' },
+  { key: 'condominio', label: 'Condomínio', color: '#38bdf8', abrev: 'COND' },
+  { key: 'comercial', label: 'Comercial', color: '#fbbf24', abrev: 'COM' },
+  { key: 'residencial', label: 'Residencial', color: '#34d399', abrev: 'RES' },
+  { key: 'obra', label: 'Obra', color: '#f472b6', abrev: 'OBRA' },
 ]
 
 export function parseTiposLocal(settings: Record<string, string>): TipoRegistroDef[] {
@@ -26,3 +26,6 @@ export function parseTiposLocal(settings: Record<string, string>): TipoRegistroD
  */
 export const tipoLocalDe = (tipos: TipoRegistroDef[], key?: string | null): TipoRegistroDef | null =>
   key ? tipos.find((t) => t.key === key) ?? { key, label: key, color: '#a1a1aa' } : null
+
+/** Como o tipo aparece DENTRO do chamado: a sigla, ou as 4 primeiras letras do nome. */
+export const siglaDoTipo = (t: TipoRegistroDef) => (t.abrev?.trim() || t.label.slice(0, 4)).toUpperCase()

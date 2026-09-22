@@ -261,15 +261,35 @@ export default function Locais() {
                 )}
                 {l.cep && <div className="font-mono text-[11px] text-slate-500">CEP {l.cep}</div>}
                 {l.note && <div className="whitespace-pre-wrap text-slate-500">{l.note}</div>}
-                {mapsUrl(l) && (
-                  <a href={mapsUrl(l)!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-red-300">
-                    <MapPin size={11} /> ver no mapa
-                  </a>
-                )}
+                {/* Dois destinos diferentes, dois botões: aqui dentro (o mapa da tela) e
+                    lá fora (o Google Maps, que é o que abre a navegação no carro). */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  {l.lat != null && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelecionado(l.id); setVista('mapa') }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-800 px-2 py-1 text-[11px] text-slate-300 hover:border-slate-700 hover:bg-slate-800"
+                      title="Mostrar este local no mapa ao lado"
+                    >
+                      <MapPin size={11} /> Ver no mapa
+                    </button>
+                  )}
+                  {mapsUrl(l) && (
+                    <a
+                      href={mapsUrl(l)!}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-800 px-2 py-1 text-[11px] text-slate-300 hover:border-slate-700 hover:bg-slate-800"
+                      title="Abrir no Google Maps"
+                    >
+                      <MapPin size={11} className="text-[#ea4335]" /> Google Maps
+                    </a>
+                  )}
+                </div>
                 {!l.address && !l.city && !l.note && <div className="text-slate-600">Sem endereço cadastrado.</div>}
               </div>
               <Pilulas l={l} />
-              {canManage && l.lat == null && (l.address || l.city) && (
+              {canManage && l.lat == null && (l.address || l.city || l.cep) && (
                 <button
                   onClick={(e) => { e.stopPropagation(); localizar(l) }}
                   disabled={localizando === l.id}
@@ -320,11 +340,12 @@ export default function Locais() {
       {gerenciando && (
         <GerenciarLista
           titulo="Tipos de local"
-          ajuda="A etiqueta que diz que lugar é este — condomínio, comercial, obra. Aparece no cartão e filtra a lista. Arraste pela alça para reordenar."
+          ajuda="A etiqueta que diz que lugar é este — condomínio, comercial, obra. Aparece no cartão, filtra a lista, e a sigla é o que entra dentro do chamado. Arraste pela alça para reordenar."
           placeholder="Novo tipo (ex.: Galpão)"
           itens={tipos}
           contagem={contagemPorTipo}
           permitirVazia
+          comAbreviacao
           aviso={(quantos, nomes) => `${quantos} local(is) em ${nomes} ficam SEM tipo ao salvar. Nenhum local é apagado — e marcar com a etiqueta errada seria pior.`}
           onClose={() => setGerenciando(false)}
           onSave={async (list) => {

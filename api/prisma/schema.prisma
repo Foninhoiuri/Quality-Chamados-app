@@ -124,6 +124,10 @@ model Ticket {
   // JSON [{id, name}].
   sharedWith    String    @default("[]")
   photos        String    @default("[]") // caminhos das fotos de abertura (JSON)
+  // As fotos do TÉCNICO são duas: como ele encontrou o local ao chegar e como deixou ao
+  // sair. Uma coisa é a foto de quem abriu o chamado (`photos`), outra é o antes e depois
+  // do serviço — é esse par que resolve discussão depois.
+  startPhotos   String    @default("[]") // caminhos das fotos de antes de começar (JSON)
   donePhotos    String    @default("[]") // caminhos das fotos de finalização (JSON)
   // ---- atendimento técnico (preenchido por quem pegou o chamado) ----
   analise         String? // análise do problema

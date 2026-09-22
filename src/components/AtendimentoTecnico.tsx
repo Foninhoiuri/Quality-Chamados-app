@@ -92,6 +92,7 @@ const paraForm = (t: Ticket) => ({
     tecnicoNome: v.tecnicoNome,
   })),
   itens: (t.itens ?? []).map<ItemForm>((i) => ({ id: i.id, descricao: i.descricao, quantidade: String(i.quantidade), tipo: i.tipo, valor: i.valor == null ? '' : String(i.valor) })),
+  startPhotos: t.startPhotos ?? [],
   donePhotos: t.donePhotos ?? [],
 })
 
@@ -239,7 +240,7 @@ export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, o
   onEditar: () => void
   onSalvo?: () => void
 }) {
-  const vazio = !t.analise && !t.possivelSolucao && !t.solucao && !t.acoesTomadas && !(t.visitas?.length) && !(t.itens?.length) && !(t.donePhotos?.length)
+  const vazio = !t.analise && !t.possivelSolucao && !t.solucao && !t.acoesTomadas && !(t.visitas?.length) && !(t.itens?.length) && !(t.donePhotos?.length) && !(t.startPhotos?.length)
   const podePonto = podeMarcarPonto ?? podeEditar
   const { emAndamento, marcando, marcarPonto } = usarPonto(t, onSalvo)
 
@@ -326,10 +327,20 @@ export function AtendimentoTecnico({ t, podeEditar, podeMarcarPonto, onEditar, o
             </div>
           )}
 
-          {!!t.donePhotos?.length && (
-            <div>
-              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Fotos finais</div>
-              <PhotoInput photos={t.donePhotos} />
+          {!!(t.startPhotos?.length || t.donePhotos?.length) && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {!!t.startPhotos?.length && (
+                <div>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Antes de começar</div>
+                  <PhotoInput photos={t.startPhotos} />
+                </div>
+              )}
+              {!!t.donePhotos?.length && (
+                <div>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Depois</div>
+                  <PhotoInput photos={t.donePhotos} />
+                </div>
+              )}
             </div>
           )}
 
@@ -412,7 +423,7 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
 
     const corpo = {
       analise: form.analise, possivelSolucao: form.possivelSolucao, solucao: form.solucao, acoesTomadas: form.acoesTomadas,
-      visitas, itens, donePhotos: form.donePhotos,
+      visitas, itens, startPhotos: form.startPhotos, donePhotos: form.donePhotos,
     }
     setSaving(true)
     try {
@@ -558,7 +569,17 @@ export function ModalAtendimento({ t, onFechar, onSalvo }: {
 
         {/* Fotos antes dos itens: no celular, o seletor de imagem cobre a tela e voltar
             para o fim de um formulário longo é o que mais irrita. */}
-        <Field label="Fotos do serviço"><PhotoInput photos={form.donePhotos} onChange={(donePhotos) => setForm({ ...form, donePhotos })} /></Field>
+        {/* ANTES e DEPOIS, separados: a foto de como estava quando cheguei é o que
+            sustenta o serviço na conversa de um mês depois. A foto de quem abriu o
+            chamado é outra coisa e continua no corpo do chamado. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Antes de começar" hint="como você encontrou">
+            <PhotoInput photos={form.startPhotos} onChange={(startPhotos) => setForm({ ...form, startPhotos })} />
+          </Field>
+          <Field label="Depois (serviço pronto)" hint="como você deixou">
+            <PhotoInput photos={form.donePhotos} onChange={(donePhotos) => setForm({ ...form, donePhotos })} />
+          </Field>
+        </div>
 
         <div>
           <div className="mb-1 text-xs font-medium text-slate-400">Itens trocados ou comprados</div>

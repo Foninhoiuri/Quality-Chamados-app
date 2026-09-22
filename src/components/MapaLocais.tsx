@@ -227,6 +227,24 @@ function Marcadores({ locais, selecionado, onSelecionar, eu }: {
   )
 }
 
+/**
+ * "Ver no mapa" tem de LEVAR ao ponto: escolher o local na lista e o mapa continuar onde
+ * estava é o mesmo que não responder. Só o primeiro enquadramento é automático; daí em
+ * diante, o mapa só se move quando alguém escolhe um local.
+ */
+function IrAoSelecionado({ local }: { local: Local | null }) {
+  const map = useMap()
+  const ultimo = useRef<string | null>(null)
+  useEffect(() => {
+    if (!local || local.lat == null || local.lng == null) return
+    if (ultimo.current === local.id) return
+    ultimo.current = local.id
+    if (map.getSize().x === 0) return
+    map.flyTo([local.lat, local.lng], Math.max(map.getZoom(), 16), { duration: 0.6 })
+  }, [map, local])
+  return null
+}
+
 export function MapaLocais({ locais, selecionado, onSelecionar }: {
   locais: Local[]
   selecionado: string | null
@@ -243,6 +261,12 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
   // Sem nenhum tile carregado, o mapa é um retângulo azul e ninguém sabe por quê.
   const [semTiles, setSemTiles] = useState(false)
 
+  /**
+   * O aviso de localização bloqueada é CLICÁVEL: tocar nele pede a permissão de novo. Na
+   * maioria das vezes o bloqueio foi um "agora não" (o navegador só dispensou a pergunta)
+   * e a segunda tentativa abre a caixa outra vez. Quando o bloqueio é definitivo, só o
+   * navegador desfaz — e aí o aviso passa a dizer onde: o cadeado da barra de endereço.
+   */
   const pedirLocalizacao = (centralizar: boolean) => {
     if (!navigator.geolocation) return setErroLocal('Este navegador não informa a localização')
     setBuscandoLocal(true)
@@ -254,9 +278,17 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
         setBuscandoLocal(false)
         if (centralizar && mapaRef) mapaRef.flyTo(pos, 15, { duration: 0.6 })
       },
-      (e) => {
+      async (e) => {
         setBuscandoLocal(false)
-        setErroLocal(e.code === e.PERMISSION_DENIED ? 'Localização bloqueada nas permissões do site' : 'Não foi possível obter sua localização')
+        if (e.code !== e.PERMISSION_DENIED) return setErroLocal('Não foi possível obter sua localização')
+        // "denied" de verdade não volta com pedido nenhum: aí o caminho é o cadeado.
+        let definitivo = false
+        try {
+          definitivo = (await navigator.permissions?.query({ name: 'geolocation' as PermissionName }))?.state === 'denied'
+        } catch { /* navegador sem a API de permissões: tentar de novo não custa */ }
+        setErroLocal(definitivo
+          ? 'Localização bloqueada — libere no cadeado da barra de endereço'
+          : 'Localização bloqueada. Toque aqui para pedir de novo')
       },
       { timeout: 8000, maximumAge: 60000, enableHighAccuracy: centralizar },
     )
@@ -289,9 +321,15 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
         {buscandoLocal ? <Loader2 size={17} className="animate-spin" /> : <LocateFixed size={17} />}
       </button>
       {erroLocal && (
-        <div className="absolute inset-x-14 top-3 z-[500] rounded-lg border border-amber-500/30 bg-slate-900/95 px-2 py-1.5 text-center text-[11px] text-amber-300 shadow-lg">
-          {erroLocal}
-        </div>
+        <button
+          type="button"
+          onClick={() => pedirLocalizacao(true)}
+          disabled={buscandoLocal}
+          title="Pedir a permissão de localização de novo"
+          className="absolute inset-x-14 top-3 z-[500] rounded-lg border border-amber-500/30 bg-slate-900/95 px-2 py-1.5 text-center text-[11px] text-amber-300 shadow-lg hover:border-amber-400/60 hover:bg-slate-900 disabled:opacity-60"
+        >
+          {buscandoLocal ? 'Pedindo permissão…' : erroLocal}
+        </button>
       )}
       {semTiles && (
         <div className="absolute inset-x-3 bottom-10 z-[500] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2 text-center text-[11px] text-slate-300 shadow-lg">
@@ -320,6 +358,7 @@ export function MapaLocais({ locais, selecionado, onSelecionar }: {
         />
         <AjustarTamanho />
         <Enquadrar pontos={pontos} eu={eu} />
+        <IrAoSelecionado local={comPino.find((l) => l.id === selecionado) ?? null} />
 
         {eu && (
           <Marker position={eu} icon={pinoEu}>
