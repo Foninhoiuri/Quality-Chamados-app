@@ -627,9 +627,26 @@ function lerCoordenada(b: any): { lat: number; lng: number } | null {
 let geocodeFalhou = false
 async function geocodificar(l: { name?: string; address?: string; number?: string; city?: string; cep?: string }): Promise<{ lat: number; lng: number } | null> {
   geocodeFalhou = false
+  // Do mais preciso ao mais largo. A rua que vem do ViaCEP traz o bairro junto
+  // ("Rua X - Centro") e o CEP brasileiro nem sempre está no mapa: cada um desses sozinho
+  // já fez endereço certo ficar sem pino.
   const rua = [l.address, l.number].filter(Boolean).join(', ')
-  const busca = [rua, l.city, l.cep].filter(Boolean).join(', ').trim()
-  if (!busca) return null
+  const ruaSemBairro = [String(l.address ?? '').split(' - ')[0].trim(), l.number].filter(Boolean).join(', ')
+  const buscas = [
+    [rua, l.city, l.cep],
+    [rua, l.city],
+    [ruaSemBairro, l.city],
+    [l.cep],
+  ].map((partes) => partes.filter(Boolean).join(', ').trim()).filter(Boolean)
+  for (const busca of [...new Set(buscas)]) {
+    const coord = await geocodificarTexto(busca)
+    // Serviço fora do ar não se resolve tentando outra forma do endereço.
+    if (coord || geocodeFalhou) return coord
+  }
+  return null
+}
+
+async function geocodificarTexto(busca: string): Promise<{ lat: number; lng: number } | null> {
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(busca)}`
   try {
     const res = await fetch(url, {
@@ -679,6 +696,26 @@ app.get('/cep/:cep', async (req: any, reply) => {
   } catch {
     return reply.code(502).send({ error: 'não foi possível consultar o CEP agora' })
   }
+})
+
+/**
+ * Endereço (ainda não salvo) → pino. É o que o formulário de local chama quando a pessoa
+ * muda a rua, o número, a cidade ou o CEP: o pino acompanha o endereço antes do salvar.
+ */
+app.post('/geocode', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  if (!u.perms.has('gerenciar_locais') && !u.perms.has('criar_chamados')) return reply.code(403).send({ error: 'sem permissão' })
+  const b = req.body ?? {}
+  const l = { address: String(b.address ?? ''), number: String(b.number ?? ''), city: String(b.city ?? ''), cep: String(b.cep ?? '') }
+  if (!l.address && !l.city && !l.cep) return reply.code(400).send({ error: 'informe o endereço ou ao menos o CEP' })
+  const coord = await geocodificar(l)
+  if (!coord) {
+    return geocodeFalhou
+      ? reply.code(503).send({ error: 'o serviço de mapas não respondeu agora' })
+      : reply.code(422).send({ error: 'endereço não encontrado no mapa' })
+  }
+  return coord
 })
 
 /**

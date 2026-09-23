@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Building2, Clock, Check, ChevronDown, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone, Pencil } from 'lucide-react'
+import { Loader2, Building2, Clock, Check, ChevronRight, ChevronLeft, Package, Wrench, MessageSquare, CalendarDays, Users, Phone, Pencil } from 'lucide-react'
 import { Button, EmptyState, Modal, Select } from '@/components/ui'
-import { useMobile } from '@/lib/useMediaQuery'
 import { PhotoInput } from '@/components/PhotoInput'
 import { AvatarPessoa } from '@/components/Pessoa'
 import { HistoricoAtendimento, textoDaIda } from '@/components/AtendimentoTecnico'
@@ -63,7 +62,6 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
   const [aberto, setAberto] = useState<string | null>(null)
-  const mobile = useMobile()
 
   async function carregarHistorico() {
     if (!podeHistorico) return setHistorico([])
@@ -116,7 +114,7 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
   const temAnterior = !!(maisAntigo && maisAntigo.getTime() < semana.getTime())
   const temProxima = fimDaSemana.getTime() < Date.now()
 
-  const abertoNoMobile = aberto ? todos.find((t) => t.id === aberto) ?? null : null
+  const abertoNoModal = aberto ? todos.find((t) => t.id === aberto) ?? null : null
 
   if (historico === null) return <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-slate-600" /></div>
 
@@ -191,77 +189,80 @@ export function ListaConcluidos({ rows, filtros, labelOf, podeHistorico, podeEdi
             : modo === 'semana' ? 'Nenhum chamado concluído nesta semana — use as setas, ou troque o período.' : 'Nenhum chamado no período escolhido.'}
         </EmptyState>
       ) : (
-        <div className="space-y-6">
+        // A linha do tempo continua: um trilho na esquerda com um marco por dia, e os
+        // chamados daquele dia em galeria ao lado — como em Abertos, sem esticar na tela toda.
+        <ol className="relative ml-2 border-l border-slate-800">
           {porDia.map((g) => (
-            <section key={g.dia}>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 first-letter:uppercase">{rotuloDia(dataDoFim(g.itens[0]))}</h2>
-              <ol className="relative ml-2 border-l border-slate-800">
-                {g.itens.map((t) => {
-                  const expandido = aberto === t.id
-                  return (
-                    <li key={t.id} className="relative mb-3 ml-5 last:mb-0">
-                      <span className="absolute -left-[27px] top-3.5 h-3 w-3 rounded-full border-2 border-[var(--app-bg)] bg-emerald-500" />
-                      <div className="rounded-lg border border-slate-800 bg-slate-900/50">
-                        <button onClick={() => setAberto(expandido ? null : t.id)} aria-expanded={expandido} className="flex w-full items-start gap-2 px-3 py-2.5 text-left">
-                          {expandido ? <ChevronDown size={15} className="mt-0.5 shrink-0 text-slate-500" /> : <ChevronRight size={15} className="mt-0.5 shrink-0 text-slate-500" />}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-mono text-[11px] text-red-400">{t.code}</span>
-                              <span className="min-w-0 truncate text-sm font-medium text-slate-100">{t.title}</span>
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] ${CORES_FASE.concluido.badge}`}>{labelOf(t.status)}</span>
-                            </div>
-                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
-                              {t.localName && <span className="inline-flex items-center gap-1"><Building2 size={11} /> {t.localName}</span>}
-                              {t.resolvedAt && <span className="inline-flex items-center gap-1 text-emerald-500/80"><Check size={11} /> {fmtDataHora(t.resolvedAt)}</span>}
-                              {t.assigneeName && <span className="inline-flex items-center gap-1"><AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={15} /> {t.assigneeName}</span>}
-                              {!!t.minutosTotais && <span className="inline-flex items-center gap-1"><Clock size={11} /> {fmtMinutos(t.minutosTotais)}</span>}
-                              {!!t.commentCount && <span className="inline-flex items-center gap-1"><MessageSquare size={11} /> {t.commentCount}</span>}
-                            </div>
-                          </div>
-                        </button>
-
-                        {/* No desktop o chamado abre ali mesmo; no celular vira modal —
-                            ler um chamado inteiro dentro de uma lista espremida não funciona. */}
-                        {expandido && !mobile && (
-                          <ConteudoConcluido t={t} podeEditar={podeEditar} onDetail={() => onDetail(t)} />
-                        )}
+            <li key={g.dia} className="relative mb-6 ml-5 last:mb-0">
+              <span className="absolute -left-[27px] top-0.5 h-3 w-3 rounded-full border-2 border-[var(--app-bg)] bg-emerald-500" />
+              <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span className="first-letter:uppercase">{rotuloDia(dataDoFim(g.itens[0]))}</span>
+                <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-400">{g.itens.length}</span>
+              </h2>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {g.itens.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setAberto(t.id)}
+                    className="flex min-w-0 flex-col rounded-lg border border-slate-800 bg-slate-900/50 p-2.5 text-left outline-none hover:border-emerald-700/50 focus-visible:border-emerald-600"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-slate-500">{t.code}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${CORES_FASE.concluido.badge}`}>{labelOf(t.status)}</span>
+                      {t.resolvedAt && (
+                        <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-500/80">
+                          <Check size={10} /> {new Date(t.resolvedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 truncate text-sm font-medium text-slate-100">{t.title}</div>
+                    {t.solucao && <p className="mt-1 line-clamp-2 text-[12px] text-slate-400">{t.solucao}</p>}
+                    <div className="mt-auto flex flex-wrap gap-x-3 gap-y-0.5 pt-1.5 text-[11px] text-slate-500">
+                      {t.localName && <span className="inline-flex min-w-0 items-center gap-1 truncate"><Building2 size={11} /> {t.localName}</span>}
+                      {!!t.minutosTotais && <span className="inline-flex items-center gap-1"><Clock size={11} /> {fmtMinutos(t.minutosTotais)}</span>}
+                      {!!t.commentCount && <span className="inline-flex items-center gap-1"><MessageSquare size={11} /> {t.commentCount}</span>}
+                    </div>
+                    {t.assigneeName && (
+                      <div className="mt-1.5 flex items-center gap-1 border-t border-slate-800/60 pt-1.5 text-[10px] text-slate-400">
+                        <AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={15} /> {t.assigneeName}
                       </div>
-                    </li>
-                  )
-                })}
-              </ol>
-            </section>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </li>
           ))}
-        </div>
+        </ol>
       )}
 
       {!podeHistorico && (
         <p className="mt-4 text-center text-[11px] text-slate-600">Você vê os concluídos recentes. O histórico completo precisa da permissão “ver arquivados”.</p>
       )}
 
-      {mobile && abertoNoMobile && (
+      {/* Em galeria não há onde abrir no lugar: o chamado concluído abre por cima. */}
+      {abertoNoModal && (
         <Modal
           open
           wide
           telaCheia
           onClose={() => setAberto(null)}
-          tituloTexto={`${abertoNoMobile.code} · ${abertoNoMobile.title}`}
+          tituloTexto={`${abertoNoModal.code} · ${abertoNoModal.title}`}
           // Mesmo cabeçalho do chamado aberto: código pequeno em cima, título embaixo e o
           // estado logo abaixo dele, tudo fixo no topo.
           title={
             <div className="min-w-0">
-              <div className="font-mono text-[11px] tracking-wide text-red-400/80">{abertoNoMobile.code}</div>
-              <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">{abertoNoMobile.title}</h2>
+              <div className="font-mono text-[11px] tracking-wide text-red-400/80">{abertoNoModal.code}</div>
+              <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">{abertoNoModal.title}</h2>
               <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                <Check size={11} /> {labelOf(abertoNoMobile.status)}
-                {abertoNoMobile.resolvedAt ? ` · ${fmtDataHora(abertoNoMobile.resolvedAt)}` : ''}
+                <Check size={11} /> {labelOf(abertoNoModal.status)}
+                {abertoNoModal.resolvedAt ? ` · ${fmtDataHora(abertoNoModal.resolvedAt)}` : ''}
               </span>
             </div>
           }
           fechar="Fechar"
-          footer={<Button onClick={() => { setAberto(null); onDetail(abertoNoMobile) }}>{podeEditar ? 'Abrir e editar' : 'Abrir chamado'}</Button>}
+          footer={<Button onClick={() => { setAberto(null); onDetail(abertoNoModal) }}>{podeEditar ? 'Abrir e editar' : 'Abrir chamado'}</Button>}
         >
-          <ConteudoConcluido t={abertoNoMobile} podeEditar={false} onDetail={() => { setAberto(null); onDetail(abertoNoMobile) }} />
+          <ConteudoConcluido t={abertoNoModal} podeEditar={false} onDetail={() => { setAberto(null); onDetail(abertoNoModal) }} />
         </Modal>
       )}
     </div>

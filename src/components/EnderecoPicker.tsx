@@ -20,26 +20,33 @@ export function BuscaEndereco({ value, onChange, onEscolher, placeholder }: {
   const [sugestoes, setSugestoes] = useState<SugestaoEndereco[]>([])
   const [buscando, setBuscando] = useState(false)
   const [aberto, setAberto] = useState(false)
-  const escolhido = useRef(false)
+  // Só procura o que a PESSOA digitou. A rua que o CEP preencheu (ou a sugestão que ela
+  // acabou de escolher) já está certa — abrir a lista ali obrigava a escolher de novo.
+  const digitou = useRef(false)
 
   useEffect(() => {
-    if (escolhido.current) { escolhido.current = false; return }
+    const doUsuario = digitou.current
+    digitou.current = false
+    if (!doUsuario) { setSugestoes([]); setAberto(false); return }
     const termo = value.trim()
     if (termo.length < 4) { setSugestoes([]); return }
     // Espera a digitação parar: o serviço de endereços é gentil, não se bate nele a cada tecla.
+    let vivo = true
     const id = setTimeout(async () => {
       setBuscando(true)
       try {
         const r = await api.sugestoesEndereco(termo)
+        // O campo mudou enquanto a busca ia (o CEP preencheu, por ex.): resposta velha não abre lista.
+        if (!vivo) return
         setSugestoes(r)
         setAberto(true)
       } catch {
-        setSugestoes([])
+        if (vivo) setSugestoes([])
       } finally {
         setBuscando(false)
       }
     }, 500)
-    return () => clearTimeout(id)
+    return () => { vivo = false; clearTimeout(id) }
   }, [value])
 
   return (
@@ -47,7 +54,7 @@ export function BuscaEndereco({ value, onChange, onEscolher, placeholder }: {
       <Search size={14} className="pointer-events-none absolute left-2.5 top-2.5 text-slate-500" />
       <input
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => { digitou.current = true; onChange(e.target.value) }}
         onFocus={() => sugestoes.length && setAberto(true)}
         onBlur={() => setTimeout(() => setAberto(false), 150)}
         placeholder={placeholder ?? 'Rua, número, bairro'}
@@ -63,7 +70,6 @@ export function BuscaEndereco({ value, onChange, onEscolher, placeholder }: {
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  escolhido.current = true
                   onEscolher(s)
                   setAberto(false)
                   setSugestoes([])

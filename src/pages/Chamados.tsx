@@ -53,6 +53,9 @@ const emptyForm = (firstStatus: string, localId = ''): TForm => ({
 const agoraLocal = () => paraInputLocal(new Date().toISOString())
 const paraIso = (local: string) => (local ? new Date(local).toISOString() : '')
 
+/** Uma ação de fluxo: pegar, mandar para a próxima coluna ou finalizar. */
+interface Etapa { label: string; curto: string; icone: 'pegar' | 'mover' | 'concluir'; acao: () => void }
+
 const TITULO: Record<FaseChamado, { titulo: string; subtitulo: string }> = {
   aberto: { titulo: 'Abertos', subtitulo: 'A fila — chamados esperando um técnico pegar' },
   andamento: { titulo: 'Em andamento', subtitulo: 'O que está sendo atendido agora, por coluna' },
@@ -264,27 +267,28 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   }
 
   /**
-   * A ÚNICA ação que faz sentido agora, com o nome do que vai acontecer. Em Abertos é
-   * pegar; no meio do caminho é ir para a próxima coluna; na última, é concluir. Isso
-   * substituiu o seletor de "mover para", que obrigava a escolher entre colunas que a
-   * pessoa nem sabia o que eram.
+   * As ações de fluxo do chamado, com o nome do que vai acontecer. Em Abertos é pegar.
+   * Em andamento, FINALIZAR está sempre lá — o serviço pode terminar em qualquer coluna —
+   * e, havendo coluna seguinte, vem junto o botão de mandar para ela. Isso substituiu o
+   * seletor de "mover para", que obrigava a escolher entre colunas que a pessoa nem sabia
+   * o que eram.
    */
-  function proximaEtapa(t: Ticket): { label: string; icone: 'pegar' | 'mover' | 'concluir'; acao: () => void } | null {
+  function proximasEtapas(t: Ticket): Etapa[] {
     const f = faseDoTicket(statuses, t)
     if (f === 'aberto') {
-      if (!canAccept || t.assigneeId) return null
-      return { label: 'Pegar chamado', icone: 'pegar', acao: () => accept(t) }
+      if (!canAccept || t.assigneeId) return []
+      return [{ label: 'Pegar chamado', curto: 'Pegar chamado', icone: 'pegar', acao: () => accept(t) }]
     }
-    if (f !== 'andamento') return null
+    if (f !== 'andamento') return []
+    const etapas: Etapa[] = []
     const meio = statuses.filter((x) => x.fase === 'andamento')
     const i = meio.findIndex((x) => x.key === t.status)
     const proxima = i >= 0 ? meio[i + 1] : undefined
-    if (proxima) {
-      if (!canManage) return null
-      return { label: `Mover para ${proxima.label}`, icone: 'mover', acao: () => moveTo(t.id, proxima.key) }
+    if (proxima && canManage) {
+      etapas.push({ label: `Mover para ${proxima.label}`, curto: proxima.label, icone: 'mover', acao: () => moveTo(t.id, proxima.key) })
     }
-    if (!canFinish) return null
-    return { label: 'Finalizar chamado', icone: 'concluir', acao: () => concluir(t) }
+    if (canFinish) etapas.push({ label: 'Finalizar chamado', curto: 'Finalizar', icone: 'concluir', acao: () => concluir(t) })
+    return etapas
   }
 
   /**
@@ -391,7 +395,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             canManage={canManage && podeMexer(t)}
             canDelete={podeExcluir(t)}
             canCancel={podeCancelar(t) && !podeExcluir(t)}
-            etapa={proximaEtapa(t)}
+            etapas={proximasEtapas(t)}
             onEdit={() => openEdit(t)}
             onDelete={() => setDeleting(t)}
             onCancel={() => setCanceling(t)}
@@ -417,13 +421,16 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           return <ListaConcluidos rows={rows} filtros={filtros} labelOf={labelOf} podeHistorico={canHistorico} podeEditar={canEditarConcluido && canManage} onDetail={openDetail} />
         }
 
-        // Abertos: é uma fila, não um quadro — cartões lado a lado, do mais antigo na espera.
-        if (fase === 'aberto') {
+        // Abertos (e Em andamento com uma coluna só): galeria — cartões lado a lado, do
+        // mais antigo ao mais novo. Um cartão esticado na tela inteira não se lê.
+        if (fase === 'aberto' || (fase === 'andamento' && colunas.length <= 1)) {
           return rows.length === 0 ? (
             <EmptyState>
               {tickets.length === 0
-                ? <>Nenhum chamado aberto.{canCreate && ' Clique em “Novo chamado” para abrir o primeiro.'}</>
-                : 'Nenhum chamado aberto com esses filtros.'}
+                ? fase === 'andamento'
+                  ? 'Nenhum chamado em andamento.'
+                  : <>Nenhum chamado aberto.{canCreate && ' Clique em “Novo chamado” para abrir o primeiro.'}</>
+                : `Nenhum chamado ${fase === 'andamento' ? 'em andamento' : 'aberto'} com esses filtros.`}
             </EmptyState>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -708,12 +715,14 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             {/* Fechar não é o primeiro do rodapé: no celular ele fica na linha de baixo,
                 ao lado da ação que termina o chamado. No desktop volta para a ponta. */}
             <Button variant="subtle" className="sm:order-first" onClick={closeDetail}>Fechar</Button>
-            {(() => {
-              const etapa = proximaEtapa(detail)
-              if (!etapa) return null
+            {proximasEtapas(detail).map((etapa) => {
               const Icone = etapa.icone === 'pegar' ? HandHelping : etapa.icone === 'concluir' ? CheckCircle2 : ArrowRight
-              return <Button onClick={etapa.acao}><Icone size={15} /> {etapa.label}</Button>
-            })()}
+              return (
+                <Button key={etapa.icone} variant={etapa.icone === 'mover' ? 'subtle' : 'primary'} onClick={etapa.acao}>
+                  <Icone size={15} /> {etapa.label}
+                </Button>
+              )
+            })}
           </>
         ) : undefined}
       >
@@ -994,14 +1003,14 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEdit, onDelete, onCancel, onMover, onAtender, onPassar, onChat, onDetail }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapas, onEdit, onDelete, onCancel, onMover, onAtender, onPassar, onChat, onDetail }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
   canDelete: boolean
   canCancel: boolean
-  /** A única ação de fluxo do cartão: pegar, ir para a próxima coluna ou concluir. */
-  etapa: { label: string; icone: 'pegar' | 'mover' | 'concluir'; acao: () => void } | null
+  /** As ações de fluxo do cartão: pegar; ou ir para a próxima coluna e/ou finalizar. */
+  etapas: Etapa[]
   onEdit: () => void
   onDelete: () => void
   onCancel: () => void
@@ -1095,25 +1104,30 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
       {/*
         A AÇÃO GRANDE É A DO DIA A DIA. Com o chamado na mão, o que o técnico faz o tempo
         todo é abrir o atendimento — finalizar acontece uma vez só, no fim. Por isso, tendo
-        atendimento, é ele que ocupa a linha, e "Finalizar" encolhe: continua vermelho,
-        para ser achado na hora certa, sem ser o que a mão encontra primeiro.
+        atendimento, é ele que ocupa a linha, e as etapas encolhem: "Finalizar" continua
+        vermelho, para ser achado na hora certa, sem ser o que a mão encontra primeiro.
+        Finalizar está sempre ali em andamento; a próxima coluna, quando existe, vem junto.
       */}
+      {(() => {
+        const compacto = !!onAtender || etapas.length > 1
+        return (
       <div className="mt-2 flex items-stretch gap-1.5">
         {onAtender && (
           <button
             onClick={stop(onAtender)}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700/70 py-2 text-[12px] font-semibold text-slate-100 hover:bg-slate-700"
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700/70 py-2 text-[12px] font-semibold text-slate-100 hover:bg-slate-700"
           >
             <Wrench size={14} /> Atendimento
           </button>
         )}
-        {etapa && (
+        {etapas.map((etapa) => (
           <button
+            key={etapa.icone}
             onClick={stop(etapa.acao)}
             title={etapa.label}
             className={
-              onAtender
-                ? `inline-flex shrink-0 items-center justify-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-semibold ${
+              compacto
+                ? `inline-flex min-w-0 items-center justify-center gap-1 rounded-lg px-2.5 py-2 text-[11px] font-semibold ${onAtender ? 'shrink' : 'flex-1'} ${
                     etapa.icone === 'concluir'
                       ? 'bg-red-600 text-white hover:bg-red-500'
                       : 'border border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-700'
@@ -1127,21 +1141,23 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapa, onEd
                   }`
             }
           >
-            {etapa.icone === 'pegar' ? <HandHelping size={14} /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />}
-            {/* Encolhido, o botão mostra só o verbo: "Finalizar chamado" não cabe. */}
-            {onAtender ? (etapa.icone === 'concluir' ? 'Finalizar' : '') : etapa.label}
+            {etapa.icone === 'pegar' ? <HandHelping size={14} className="shrink-0" /> : etapa.icone === 'concluir' ? <CheckCircle2 size={14} className="shrink-0" /> : <ArrowRight size={14} className="shrink-0" />}
+            {/* Encolhido, o botão mostra só o essencial: o verbo, ou o nome da coluna. */}
+            <span className="truncate">{compacto ? etapa.curto : etapa.label}</span>
           </button>
-        )}
+        ))}
         <button
           onClick={stop(onChat)}
           title="Conversa do chamado"
           aria-label="Conversa do chamado"
-          className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapa || onAtender ? '' : 'flex-1'}`}
+          className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-[12px] font-medium text-slate-200 hover:bg-slate-700 ${etapas.length || onAtender ? '' : 'flex-1'}`}
         >
           <MessagesSquare size={14} />
-          {t.commentCount ? <span className="tabular-nums">{t.commentCount}</span> : !etapa && !onAtender && 'Conversa'}
+          {t.commentCount ? <span className="tabular-nums">{t.commentCount}</span> : !etapas.length && !onAtender && 'Conversa'}
         </button>
       </div>
+        )
+      })()}
 
     </div>
   )

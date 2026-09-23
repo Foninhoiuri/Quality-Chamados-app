@@ -41,10 +41,13 @@ Não edite o campo `version` à mão nem no meio de um commit — quem manda é 
   primeira linha da descrição — não reescreva isso no banco.
 - O pino do mapa dos locais vem do **Nominatim (OpenStreetMap)**, chamado pelo servidor. É melhor-
   esforço: sem internet ou sem resultado, o local fica sem pino e o botão “Localizar no mapa” tenta de
-  novo. Nunca deixe a falha derrubar o cadastro do local.
-- **Uma ação por cartão**: o que aparece é a próxima etapa da fase (pegar → próxima coluna →
-  finalizar). Não voltar a pôr seletor de "mover para" — obriga a pessoa a escolher entre colunas
-  que ela não conhece. Depois da ação, navegue para a tela da fase nova (`irParaFase`).
+  novo. Nunca deixe a falha derrubar o cadastro do local. No formulário, **o pino acompanha o
+  endereço**: mudou rua/número/cidade/CEP, ele é recalculado (`POST /geocode`) — pino velho indo
+  junto no salvar seria lido pelo servidor como marcado à mão.
+- **Ações de fluxo no cartão**: em Abertos é só "pegar". Em andamento, **Finalizar aparece
+  sempre** (o serviço pode acabar em qualquer coluna) e, havendo coluna seguinte, vem junto o botão
+  de mandar para ela (`proximasEtapas`). Não voltar a pôr seletor de "mover para" — obriga a pessoa
+  a escolher entre colunas que ela não conhece. Depois da ação, navegue para a fase nova (`irParaFase`).
 - O atendimento técnico é preenchido em **modal por cima** do chamado, com as ações no rodapé fixo.
   O alvo é o celular: botão grande, ao alcance do polegar, conteúdo rolando por baixo.
 - **Gestor não mexe em chamado**: ele acompanha. No módulo Chamados tem o mesmo alcance do

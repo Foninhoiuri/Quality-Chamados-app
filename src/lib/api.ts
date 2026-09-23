@@ -164,6 +164,7 @@ export const api = {
   /** CEP → endereço, para preencher o cadastro do local. */
   buscarCep: (cep: string) => req<{ cep: string; address: string; city: string }>('GET', `/cep/${cep.replace(/\D/g, '')}`),
   /** Sugestões de endereço enquanto se digita (pino do mapa). */
+  geocodeEndereco: (e: { address: string; number: string; city: string; cep: string }) => req<{ lat: number; lng: number }>('POST', '/geocode', e),
   sugestoesEndereco: (q: string) => req<SugestaoEndereco[]>('GET', `/geocode/sugestoes?q=${encodeURIComponent(q)}`),
   monthlyReport: (month: string, localId?: string) =>
     req<MonthlyReport>('GET', `/reports/monthly?month=${month}${localId ? `&localId=${localId}` : ''}`),

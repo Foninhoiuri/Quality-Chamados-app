@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Loader2, MapPin, Plus, Crosshair, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Loader2, MapPin, Plus, Crosshair, X, RefreshCw } from 'lucide-react'
 import { Button, Field, FieldBox, Input, Textarea } from './ui'
 import { BuscaEndereco } from './EnderecoPicker'
 import { api } from '@/lib/api'
@@ -48,6 +48,52 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
   // Endereço aberto: ou já veio preenchido (edição), ou o CEP acabou de trazer.
   const [enderecoAberto, setEnderecoAberto] = useState(!!form.address || !!form.city || !!form.number)
   const [obsAberta, setObsAberta] = useState(!!form.note)
+
+  /*
+   * O PINO ACOMPANHA O ENDEREÇO. O pino que veio do cadastro vale para o endereço que veio
+   * junto; mudou rua, número, cidade ou CEP, ele é recalculado sozinho (depois de a pessoa
+   * parar de digitar). Sem isso o pino velho ia junto no salvar e o servidor o tratava como
+   * marcado à mão — o local ficava apontando para o endereço antigo.
+   */
+  const chaveDoEndereco = (f: LocalForm) => {
+    const cep = soDigitos(f.cep)
+    return [f.address.trim(), f.number.trim(), f.city.trim(), cep.length === 8 ? cep : ''].join('|')
+  }
+  const chave = chaveDoEndereco(form)
+  const pinoDe = useRef(chave)
+  const formAtual = useRef(form)
+  formAtual.current = form
+  const tentativa = useRef(0)
+  const [pino, setPino] = useState<{ estado: 'calculando' | 'erro'; msg?: string } | null>(null)
+
+  async function recalcularPino() {
+    const f = formAtual.current
+    const k = chaveDoEndereco(f)
+    pinoDe.current = k
+    if (k === '|||') return
+    const minha = ++tentativa.current
+    setPino({ estado: 'calculando' })
+    try {
+      const c = await api.geocodeEndereco({ address: f.address, number: f.number, city: f.city, cep: f.cep })
+      if (minha !== tentativa.current) return
+      onChange({ ...formAtual.current, lat: c.lat, lng: c.lng })
+      setPino(null)
+    } catch (e: any) {
+      if (minha !== tentativa.current) return
+      // Pino velho aponta para o lugar errado: melhor sem pino (o servidor tenta de novo ao salvar).
+      onChange({ ...formAtual.current, lat: null, lng: null })
+      setPino({ estado: 'erro', msg: e?.message })
+    }
+  }
+
+  useEffect(() => {
+    if (!onAbrirMapa || chave === pinoDe.current) return
+    // O pino de antes já não vale: se salvar agora, sem coordenada o servidor procura sozinho.
+    if (form.lat != null) onChange({ ...form, lat: null, lng: null })
+    const id = setTimeout(recalcularPino, 1200)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chave])
 
   async function buscarCep(valor: string) {
     const cep = soDigitos(valor)
@@ -134,7 +180,14 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
             <BuscaEndereco
               value={form.address}
               onChange={(v) => onChange({ ...form, address: v })}
-              onEscolher={(s) => onChange({ ...form, address: s.address || s.descricao, city: s.city || form.city, lat: s.lat, lng: s.lng })}
+              onEscolher={(s) => {
+                // A sugestão já traz o ponto certo: é ele o pino deste endereço.
+                const novo = { ...form, address: s.address || s.descricao, city: s.city || form.city, lat: s.lat, lng: s.lng }
+                pinoDe.current = chaveDoEndereco(novo)
+                tentativa.current++
+                setPino(null)
+                onChange(novo)
+              }}
             />
           </FieldBox>
           <div className="grid grid-cols-3 gap-3">
@@ -154,7 +207,22 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
               >
                 <Crosshair size={13} /> {form.lat == null ? 'Marcar no mapa' : 'Ajustar o pino'}
               </button>
-              {form.lat != null ? (
+              {chave !== '|||' && (
+                <button
+                  type="button"
+                  onClick={recalcularPino}
+                  disabled={pino?.estado === 'calculando'}
+                  title="Procura de novo o endereço digitado e põe o pino nele"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-[12px] text-slate-200 hover:border-red-700 hover:bg-red-500/5 disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={pino?.estado === 'calculando' ? 'animate-spin' : ''} /> Recalcular pelo endereço
+                </button>
+              )}
+              {pino?.estado === 'calculando' ? (
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400"><Loader2 size={11} className="animate-spin" /> procurando o endereço…</span>
+              ) : pino?.estado === 'erro' ? (
+                <span className="text-[11px] text-amber-400">{pino.msg || 'endereço não encontrado'} — marque no mapa</span>
+              ) : form.lat != null ? (
                 <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400"><MapPin size={11} /> pino definido</span>
               ) : (
                 <span className="text-[11px] text-slate-500">sem pino — será procurado pelo endereço</span>
