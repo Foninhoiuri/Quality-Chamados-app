@@ -1157,7 +1157,9 @@ app.post('/tickets', async (req: any, reply) => {
   // Só o que entra na fila avisa os técnicos — serviço já realizado nasce fechado.
   if (!jaRealizado) {
     const aud = await usersWithPerm('aceitar_chamados', t.localId)
-    await announce(aud.filter((id) => id !== u.sub), { kind: 'ticket', title: `Novo chamado ${t.code}`, body: t.title, url: ticketUrl(t.id), event: 'chamado_novo' }, { push: true })
+    // Número E título na primeira linha: é a que o celular mostra quando a notificação encolhe.
+    const onde = [localName, t.solicitante].filter(Boolean).join(' · ')
+    await announce(aud.filter((id) => id !== u.sub), { kind: 'ticket', title: `Novo chamado ${t.code} · ${t.title}`, body: onde || t.title, url: ticketUrl(t.id), event: 'chamado_novo' }, { push: true })
   }
   return (await shapeTickets([t]))[0]
 })
@@ -1935,7 +1937,9 @@ app.get('/reports/monthly', async (req: any, reply) => {
   const horas = (t: any) => (new Date(t.resolvedAt).getTime() - new Date(t.createdAt).getTime()) / 3600000
   const media = (arr: any[]) => (arr.length ? Math.round((arr.reduce((a, t) => a + horas(t), 0) / arr.length) * 10) / 10 : null)
   const stLabel = Object.fromEntries(statuses.map((s) => [s.key, s.label]))
-  const nomesLocais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((l) => [l.id, l.name]))
+  const locaisDoBanco = await prisma.local.findMany({ select: { id: true, name: true, tipo: true } })
+  const nomesLocais = Object.fromEntries(locaisDoBanco.map((l) => [l.id, l.name]))
+  const tipoDoLocal = Object.fromEntries(locaisDoBanco.map((l) => [l.id, l.tipo ?? '']))
 
   const agrupar = <T,>(arr: T[], chave: (t: T) => string) => {
     const mapa = new Map<string, T[]>()
@@ -1947,9 +1951,33 @@ app.get('/reports/monthly', async (req: any, reply) => {
     .map(([nome, arr]) => ({ nome, concluidos: arr.length, mediaHoras: media(arr) }))
     .sort((a, b) => b.concluidos - a.concluidos)
 
-  const porLocal = localId ? [] : [...agrupar(abertos, (t) => (t.localId ? nomesLocais[t.localId] ?? '—' : 'Sem local')).entries()]
-    .map(([nome, arr]) => ({ nome, abertos: arr.length, emAberto: arr.filter((t) => !done.has(t.status)).length }))
-    .sort((a, b) => b.abertos - a.abertos)
+  // "Ainda em aberto" é o que está NA FILA, esperando técnico — o que já está em
+  // andamento tem gente cuidando e não entra nessa conta.
+  const naFila = new Set(statuses.filter((s) => s.fase === 'aberto').map((s) => s.key))
+  const aindaAberto = (t: { status: string }) => naFila.has(t.status)
+
+  const nomeDoLocal = (t: (typeof abertos)[number]) => (t.localId ? nomesLocais[t.localId] ?? '—' : 'Sem local')
+  const abertosPorLocal = agrupar(abertos, nomeDoLocal)
+  const concluidosPorLocal = agrupar(concluidos, nomeDoLocal)
+  const porLocal = localId ? [] : [...new Set([...abertosPorLocal.keys(), ...concluidosPorLocal.keys()])]
+    .map((nome) => {
+      const arr = abertosPorLocal.get(nome) ?? []
+      return { nome, abertos: arr.length, emAberto: arr.filter(aindaAberto).length, concluidos: (concluidosPorLocal.get(nome) ?? []).length }
+    })
+    .sort((a, b) => b.abertos - a.abertos || b.concluidos - a.concluidos)
+
+  // Que tipo de lugar mais atendemos: abertos e concluídos no mês por etiqueta do local.
+  // '' = local sem tipo (ou chamado sem local) — estado legítimo, não se chuta etiqueta.
+  const tipoDe = (t: { localId: string | null }) => (t.localId ? tipoDoLocal[t.localId] ?? '' : '')
+  const tiposNoMes = new Set([...abertos, ...concluidos].map(tipoDe))
+  const porTipoLocal = [...tiposNoMes]
+    .map((tipo) => ({
+      tipo,
+      abertos: abertos.filter((t) => tipoDe(t) === tipo).length,
+      concluidos: concluidos.filter((t) => tipoDe(t) === tipo).length,
+      locais: new Set([...abertos, ...concluidos].filter((t) => tipoDe(t) === tipo && t.localId).map((t) => t.localId)).size,
+    }))
+    .sort((a, b) => b.abertos + b.concluidos - (a.abertos + a.concluidos))
 
   const diasNoMes = new Date(ano, mes + 1, 0).getDate()
   const porDia = Array.from({ length: diasNoMes }, (_, i) => {
@@ -2011,7 +2039,7 @@ app.get('/reports/monthly', async (req: any, reply) => {
     resumo: {
       abertos: abertos.length,
       concluidos: concluidos.length,
-      emAberto: abertos.filter((t) => !done.has(t.status)).length,
+      emAberto: abertos.filter(aindaAberto).length,
       mediaHoras: media(concluidos),
       minutosTrabalhados: somaMin(idas),
       visitas: idas.length,
@@ -2025,6 +2053,7 @@ app.get('/reports/monthly', async (req: any, reply) => {
     porStatus: statuses.map((s) => ({ key: s.key, label: s.label, fase: s.fase ?? 'andamento', total: abertos.filter((t) => t.status === s.key).length })),
     porResponsavel,
     porLocal,
+    porTipoLocal,
     porDia,
     lista: lista.map((t) => ({
       id: t.id,

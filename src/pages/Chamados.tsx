@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Pencil, Trash2, MessageSquare, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MoveRight, MessagesSquare, ArrowRightLeft, Navigation, Copy } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MessagesSquare, ArrowRightLeft, Navigation, Copy } from 'lucide-react'
 import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
@@ -114,8 +114,7 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const mobile = useMobile()
   // No celular o quadro não cabe lado a lado: cada coluna vira uma aba.
   const [colunaAtiva, setColunaAtiva] = useState('')
-  // No celular não se arrasta cartão: mover é por uma listinha de colunas.
-  const [movendo, setMovendo] = useState<Ticket | null>(null)
+  const [compartilhando, setCompartilhando] = useState<Ticket | null>(null)
   const [form, setForm] = useState<TForm>(emptyForm('aberto'))
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState<TicketStatus | null>(null)
@@ -399,7 +398,12 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
             onEdit={() => openEdit(t)}
             onDelete={() => setDeleting(t)}
             onCancel={() => setCanceling(t)}
-            onMover={fase === 'andamento' && canManage && colunas.length > 1 ? () => setMovendo(t) : undefined}
+            // No lugar do antigo "mover" (o botão grande já manda para a próxima coluna).
+            onCompartilhar={
+              fase === 'andamento' && canShare && !!t.assigneeId && podeMexer(t) && (ehMeu(t) || canCorrigir)
+                ? () => setCompartilhando(t)
+                : undefined
+            }
             // Trocar de técnico sem abrir o chamado: o cartão é onde a fila é olhada.
             onPassar={
               fase === 'andamento' && !!t.assigneeId && podeMexer(t) && (ehMeu(t) || canCorrigir || (t.sharedWith ?? []).some((p) => p.id === me.id))
@@ -751,38 +755,25 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         )}
       </Modal>
 
-      {movendo && (
-        <Modal
-          open
-          onClose={() => setMovendo(null)}
-          tituloTexto={`Mover ${movendo.code}`}
-          title={
-            <div className="min-w-0">
-              <div className="font-mono text-[11px] tracking-wide text-red-400/80">{movendo.code}</div>
-              <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">{movendo.title}</h2>
-            </div>
-          }
-        >
-          <div className="space-y-1.5">
-            <p className="mb-2 text-[12px] text-slate-500">Para qual coluna de Em andamento?</p>
-            {colunas.map((c) => (
-              <button
-                key={c.key}
-                onClick={() => { moveTo(movendo.id, c.key); setMovendo(null) }}
-                disabled={c.key === movendo.status}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-3 text-left text-sm ${
-                  c.key === movendo.status
-                    ? 'border-slate-800 bg-slate-900/40 text-slate-500'
-                    : 'border-slate-800 text-slate-200 hover:border-red-700 hover:bg-red-500/5'
-                }`}
-              >
-                {c.label}
-                {c.key === movendo.status ? <span className="text-[11px]">está aqui</span> : <ArrowRight size={15} className="text-slate-600" />}
-              </button>
-            ))}
-          </div>
-        </Modal>
-      )}
+      {/* Compartilhar direto do cartão: é no quadro que se vê quem precisa de ajuda. */}
+      {compartilhando && (() => {
+        const alvo = tickets.find((x) => x.id === compartilhando.id) ?? compartilhando
+        return (
+          <Modal
+            open
+            onClose={() => setCompartilhando(null)}
+            tituloTexto={`Compartilhar ${alvo.code}`}
+            title={
+              <div className="min-w-0">
+                <div className="font-mono text-[11px] tracking-wide text-red-400/80">{alvo.code}</div>
+                <h2 className="truncate text-[15px] font-semibold leading-tight text-slate-100">{alvo.title}</h2>
+              </div>
+            }
+          >
+            <CompartilharChamado t={alvo} onSaved={recarregarDetalhe} abertoDeInicio onFechar={() => setCompartilhando(null)} />
+          </Modal>
+        )
+      })()}
 
       {conversando && (
         <ChatChamado
@@ -1003,7 +994,7 @@ function DetalheChamado({ t, labelOf, concluido, onRefresh, podeAtender, podeCom
   )
 }
 
-function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapas, onEdit, onDelete, onCancel, onMover, onAtender, onPassar, onChat, onDetail }: {
+function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapas, onEdit, onDelete, onCancel, onCompartilhar, onAtender, onPassar, onChat, onDetail }: {
   t: Ticket
   concluido: boolean
   canManage: boolean
@@ -1014,8 +1005,8 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapas, onE
   onEdit: () => void
   onDelete: () => void
   onCancel: () => void
-  /** Mover para outra coluna sem arrastar (celular). */
-  onMover?: () => void
+  /** Chamar outro técnico para acompanhar o chamado, sem abrir o detalhe. */
+  onCompartilhar?: () => void
   /** Abre o atendimento direto do cartão: é o que o técnico faz o dia inteiro. */
   onAtender?: () => void
   /** Passar o chamado adiante sem abrir nada — a troca acontece olhando o quadro. */
@@ -1050,16 +1041,16 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapas, onE
           </div>
           <div className="mt-0.5 truncate text-sm font-medium text-slate-100">{t.title}</div>
         </div>
-        {(canManage || canDelete || canCancel || onPassar) && (
+        {(canManage || canDelete || canCancel || onPassar || onCompartilhar) && (
           <div className="flex shrink-0 items-center gap-0.5">
             {onPassar && (
               <button onClick={stop(onPassar)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Passar para outro técnico">
                 <ArrowRightLeft size={14} />
               </button>
             )}
-            {onMover && (
-              <button onClick={stop(onMover)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200 md:hidden" title="Mover para outra coluna">
-                <MoveRight size={14} />
+            {onCompartilhar && (
+              <button onClick={stop(onCompartilhar)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Compartilhar com outro técnico" aria-label="Compartilhar com outro técnico">
+                <Users size={14} />
               </button>
             )}
             {canManage && <button onClick={stop(onEdit)} className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Editar"><Pencil size={13} /></button>}
@@ -1094,7 +1085,14 @@ function TicketCard({ t, concluido, canManage, canDelete, canCancel, etapas, onE
         {t.assigneeName ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-slate-400">
             <AvatarPessoa nome={t.assigneeName} id={t.assigneeId} size={15} /> {t.assigneeName}
-            {(t.sharedWith ?? []).map((p) => (<AvatarPessoa key={p.id} nome={p.name} id={p.id} size={15} className="-ml-1 ring-1 ring-slate-900" />))}
+            {/* Quem está junto (inclusive quem passou o chamado adiante) é APOIO: vem
+                separado e apagado, para não parecer que o chamado tem dois donos. */}
+            {!!t.sharedWith?.length && (
+              <span className="ml-0.5 inline-flex items-center opacity-70" title={`Apoio: ${t.sharedWith.map((p) => p.name).join(', ')}`}>
+                <span className="mr-0.5 text-slate-600">+</span>
+                {t.sharedWith.map((p, i) => (<AvatarPessoa key={p.id} nome={p.name} id={p.id} size={13} className={`${i ? '-ml-1 ' : ''}ring-1 ring-slate-900`} />))}
+              </span>
+            )}
           </span>
         ) : (
           <span className="shrink-0 text-amber-400/80">sem técnico</span>

@@ -276,7 +276,10 @@ export interface MonthlyReport {
   registrosPorTipo: { tipo: TipoRegistro; total: number }[]
   porStatus: { key: string; label: string; fase: FaseChamado; total: number }[]
   porResponsavel: { nome: string; concluidos: number; mediaHoras: number | null }[]
-  porLocal: { nome: string; abertos: number; emAberto: number }[]
+  /** `emAberto` = dos abertos no mês, os que ainda estão na fila (fase aberto). */
+  porLocal: { nome: string; abertos: number; emAberto: number; concluidos: number }[]
+  /** Por etiqueta do local (`local_tipos`); `tipo` vazio = sem tipo. */
+  porTipoLocal: { tipo: string; abertos: number; concluidos: number; locais: number }[]
   porDia: { dia: string; abertos: number; concluidos: number }[]
   lista: {
     id: string

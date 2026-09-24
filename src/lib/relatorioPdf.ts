@@ -17,7 +17,7 @@ const CINZA: [number, number, number] = [100, 116, 139]
 const MARGEM = 14
 const dataBr = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—')
 
-export function baixarRelatorioPdf(d: MonthlyReport, nomeMes: string, tiposRegistro: TipoRegistroDef[]) {
+export function baixarRelatorioPdf(d: MonthlyReport, nomeMes: string, tiposRegistro: TipoRegistroDef[], tiposLocal: TipoRegistroDef[] = []) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const largura = doc.internal.pageSize.getWidth()
   const r = d.resumo
@@ -99,7 +99,14 @@ export function baixarRelatorioPdf(d: MonthlyReport, nomeMes: string, tiposRegis
 
   if (d.porLocal.length) {
     secao('Chamados por local')
-    tabela(['Local', 'Abertos no mês', 'Ainda em aberto'], d.porLocal.map((l) => [l.nome, l.abertos, l.emAberto]))
+    tabela(['Local', 'Abertos no mês', 'Concluídos no mês', 'Ainda em aberto'], d.porLocal.map((l) => [l.nome, l.abertos, l.concluidos ?? 0, l.emAberto]))
+  }
+
+  if (d.porTipoLocal?.some((x) => x.tipo)) {
+    secao('Chamados por tipo de local')
+    const nomeTipo = (k: string) => (k ? tiposLocal.find((t) => t.key === k)?.label ?? k : 'Sem tipo')
+    tabela(['Tipo de local', 'Abertos no mês', 'Concluídos no mês', 'Locais'],
+      d.porTipoLocal.map((x) => [nomeTipo(x.tipo), x.abertos, x.concluidos, x.locais]))
   }
 
   secao('Itens trocados e comprados')

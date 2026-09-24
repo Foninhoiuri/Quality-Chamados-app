@@ -10,16 +10,21 @@ import type { TecnicoRef, Ticket } from '@/lib/types'
  * avisados do que acontece nele. Quem preenche o atendimento continua sendo só o
  * responsável, então não há duas pessoas escrevendo a mesma solução.
  */
-export function CompartilharChamado({ t, onSaved, aoLado }: {
+export function CompartilharChamado({ t, onSaved, aoLado, abertoDeInicio, onFechar }: {
   t: Ticket
   onSaved: () => void
   /** Outra ação de gente no chamado (passar o bastão), na mesma linha e no mesmo estilo. */
   aoLado?: ReactNode
+  /** Já nasce com a lista de técnicos aberta (quando vem do botão do cartão). */
+  abertoDeInicio?: boolean
+  /** Chamado ao fechar a lista — quem abriu numa janela fecha a janela junto. */
+  onFechar?: () => void
 }) {
   const shareTicket = useStore((s) => s.shareTicket)
   const showToast = useStore((s) => s.showToast)
   const me = useCurrentUser()
-  const [aberto, setAberto] = useState(false)
+  const [aberto, setAbertoInterno] = useState(!!abertoDeInicio)
+  const setAberto = (v: boolean) => { setAbertoInterno(v); if (!v) onFechar?.() }
   const [tecnicos, setTecnicos] = useState<TecnicoRef[] | null>(null)
   const [sel, setSel] = useState<string[]>(() => (t.sharedWith ?? []).map((x) => x.id))
   const [salvando, setSalvando] = useState(false)

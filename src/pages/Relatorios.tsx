@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
 import { CORES_FASE } from '@/lib/tickets'
 import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
+import { parseTiposLocal, tipoLocalDe } from '@/lib/locais'
 import { SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
 import type { MonthlyReport } from '@/lib/types'
 
@@ -89,6 +90,7 @@ export default function Relatorios() {
   const settings = useStore((s) => s.settings)
   const showToast = useStore((s) => s.showToast)
   const tiposRegistro = useMemo(() => parseTiposRegistro(settings), [settings])
+  const tiposLocal = useMemo(() => parseTiposLocal(settings), [settings])
   const meses = ultimosMeses()
   const [localId, setLocalId] = useState('')
   const [mes, setMes] = useState(meses[0].key)
@@ -141,7 +143,7 @@ export default function Relatorios() {
                 // A biblioteca do PDF só é baixada na hora de gerar — quem só olha o
                 // relatório na tela não paga por ela.
                 const { baixarRelatorioPdf } = await import('@/lib/relatorioPdf')
-                baixarRelatorioPdf(dados, nomeMes, tiposRegistro)
+                baixarRelatorioPdf(dados, nomeMes, tiposRegistro, tiposLocal)
               } catch {
                 showToast('Não foi possível gerar o PDF')
               } finally {
@@ -162,7 +164,7 @@ export default function Relatorios() {
           <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 xl:grid-cols-7">
             <Numero label="Chamados abertos" valor={r.abertos} />
             <Numero label="Concluídos" valor={r.concluidos} tom="#34d399" />
-            <Numero label="Ainda em aberto" valor={r.emAberto} hint="dos abertos no mês" tom={r.emAberto ? '#fbbf24' : undefined} />
+            <Numero label="Ainda em aberto" valor={r.emAberto} hint="na fila, sem técnico" tom={r.emAberto ? '#fbbf24' : undefined} />
             <Numero label="Horas trabalhadas" valor={fmtMinutos(r.minutosTrabalhados)} hint={`${r.visitas} ida(s) ao local`} />
             {/* Os três de baixo só aparecem com espaço — no celular ficam atrás do "mais números". */}
             <div className={`contents ${maisNumeros ? '' : 'hidden md:contents'}`}>
@@ -174,6 +176,16 @@ export default function Relatorios() {
           <button onClick={() => setMaisNumeros((v) => !v)} className="-mt-1 w-full rounded-lg border border-slate-800 py-2 text-[12px] text-slate-400 hover:text-slate-200 md:hidden">
             {maisNumeros ? 'Menos números' : 'Mais números'}
           </button>
+
+          {/* Situação dos abertos no mês: são só etiquetas — ficam soltas, logo abaixo dos números. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Situação atual dos abertos no mês</span>
+            {dados.porStatus.map((s) => (
+              <span key={s.key ?? s.label} className={`rounded-full px-2 py-0.5 text-[11px] ${CORES_FASE[s.fase ?? 'andamento'].badge}`}>
+                {s.label}: <span className="font-medium tabular-nums">{s.total}</span>
+              </span>
+            ))}
+          </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Secao titulo="Horas trabalhadas por técnico" hint="Soma das idas ao local com data neste mês." aberta>
@@ -216,33 +228,78 @@ export default function Relatorios() {
               )}
             </Secao>
 
-            <Secao titulo="Itens trocados e comprados" hint="Dos chamados concluídos no mês.">
-              {dados.itens.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-slate-600">Nenhum item registrado.</div>
+            <Secao titulo="Concluídos por técnico">
+              {dados.porResponsavel.length === 0 ? (
+                <div className="py-6 text-center text-[12px] text-slate-600">Nenhum chamado concluído no período.</div>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
-                      <th className="pb-2 font-medium">Item</th>
-                      <th className="pb-2 font-medium">Tipo</th>
-                      <th className="pb-2 text-right font-medium">Qtd.</th>
-                      <th className="pb-2 text-right font-medium">Valor</th>
+                      <th className="pb-2 font-medium">Técnico</th>
+                      <th className="pb-2 text-right font-medium">Concluídos</th>
+                      <th className="pb-2 text-right font-medium">Média</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dados.itens.map((i) => (
-                      <tr key={`${i.tipo}-${i.descricao}`} className="border-t border-slate-800/60" title={`Chamados: ${i.chamados.join(', ')}`}>
-                        <td className="py-1.5 text-slate-300">{i.descricao}</td>
-                        <td className="py-1.5 text-slate-400">{i.tipo === 'comprado' ? 'Comprado' : 'Trocado'}</td>
-                        <td className="py-1.5 text-right tabular-nums text-slate-200">{i.quantidade.toLocaleString('pt-BR')}</td>
-                        <td className="py-1.5 text-right tabular-nums text-slate-400">{i.valorTotal ? `R$ ${i.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'}</td>
+                    {dados.porResponsavel.map((p) => (
+                      <tr key={p.nome} className="border-t border-slate-800/60">
+                        <td className="py-1.5 text-slate-300">{p.nome}</td>
+                        <td className="py-1.5 text-right tabular-nums text-slate-200">{p.concluidos}</td>
+                        <td className="py-1.5 text-right tabular-nums text-slate-400">{p.mediaHoras == null ? '—' : `${p.mediaHoras} h`}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
+              {dados.porLocal.length > 0 && (
+                <>
+                  <div className="mb-2 mt-4 border-t border-slate-800 pt-3 text-sm font-medium text-slate-200">Chamados por local</div>
+                  <div className="space-y-1">
+                    {dados.porLocal.map((l) => (
+                      <div key={l.nome} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-slate-800/40">
+                        <span className="truncate text-[13px] text-slate-300">{l.nome}</span>
+                        <span className="shrink-0 text-[12px] tabular-nums text-slate-400">
+                          {l.abertos} aberto(s) · <span className="text-emerald-400">{l.concluidos ?? 0} concluído(s)</span>
+                          {l.emAberto > 0 && <span className="text-amber-400"> · {l.emAberto} na fila</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </Secao>
           </div>
+
+          {/* Que tipo de lugar mais nos chama. Só aparece quando há local com etiqueta —
+              uma barra única de "sem tipo" não diz nada. */}
+          {dados.porTipoLocal?.some((x) => x.tipo) && (() => {
+            const maior = Math.max(1, ...dados.porTipoLocal.map((x) => x.abertos + x.concluidos))
+            return (
+              <Secao titulo="Chamados por tipo de local" hint="Abertos e concluídos no mês, pela etiqueta do local. Do tipo mais atendido ao menos.">
+                <div className="space-y-2.5">
+                  {dados.porTipoLocal.map((x) => {
+                    const t = tipoLocalDe(tiposLocal, x.tipo) ?? { key: '', label: 'Sem tipo', color: '#64748b' }
+                    const total = x.abertos + x.concluidos
+                    return (
+                      <div key={x.tipo || 'sem'}>
+                        <div className="mb-1 flex items-center justify-between gap-2 text-[13px]">
+                          <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-slate-200">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t.color }} /> {t.label}
+                          </span>
+                          <span className="shrink-0 text-[12px] tabular-nums text-slate-400">
+                            <span className="font-medium text-slate-100">{x.abertos}</span> aberto(s) · <span className="text-emerald-400">{x.concluidos}</span> concluído(s) · {x.locais} local(is)
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                          <div className="h-full rounded-full" style={{ width: `${(total / maior) * 100}%`, background: t.color }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Secao>
+            )
+          })()}
 
           <Secao titulo="Por dia">
             <ResponsiveContainer width="100%" height={220}>
@@ -270,57 +327,6 @@ export default function Relatorios() {
               </AreaChart>
             </ResponsiveContainer>
           </Secao>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Secao titulo="Situação atual dos abertos no mês">
-              <div className="flex flex-wrap gap-1.5">
-                {/* A mesma cor de fase dos badges do resto do app. */}
-                {dados.porStatus.map((s) => (
-                  <span key={s.key ?? s.label} className={`rounded-full px-2 py-0.5 text-[11px] ${CORES_FASE[s.fase ?? 'andamento'].badge}`}>
-                    {s.label}: <span className="font-medium tabular-nums">{s.total}</span>
-                  </span>
-                ))}
-              </div>
-            </Secao>
-
-            <Secao titulo="Concluídos por técnico">
-              {dados.porResponsavel.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-slate-600">Nenhum chamado concluído no período.</div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
-                      <th className="pb-2 font-medium">Técnico</th>
-                      <th className="pb-2 text-right font-medium">Concluídos</th>
-                      <th className="pb-2 text-right font-medium">Média</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dados.porResponsavel.map((p) => (
-                      <tr key={p.nome} className="border-t border-slate-800/60">
-                        <td className="py-1.5 text-slate-300">{p.nome}</td>
-                        <td className="py-1.5 text-right tabular-nums text-slate-200">{p.concluidos}</td>
-                        <td className="py-1.5 text-right tabular-nums text-slate-400">{p.mediaHoras == null ? '—' : `${p.mediaHoras} h`}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {dados.porLocal.length > 0 && (
-                <>
-                  <div className="mb-2 mt-4 border-t border-slate-800 pt-3 text-sm font-medium text-slate-200">Abertos por local</div>
-                  <div className="space-y-1">
-                    {dados.porLocal.map((l) => (
-                      <div key={l.nome} className="flex items-center justify-between rounded-lg px-2 py-1 hover:bg-slate-800/40">
-                        <span className="truncate text-[13px] text-slate-300">{l.nome}</span>
-                        <span className="shrink-0 text-[12px] tabular-nums text-slate-400">{l.abertos} {l.emAberto > 0 && <span className="text-amber-400">({l.emAberto} em aberto)</span>}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </Secao>
-          </div>
 
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
@@ -389,6 +395,33 @@ export default function Relatorios() {
               </>
             )}
           </Card>
+
+          <Secao titulo="Itens trocados e comprados" hint="Dos chamados concluídos no mês.">
+            {dados.itens.length === 0 ? (
+              <div className="py-6 text-center text-[12px] text-slate-600">Nenhum item registrado.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="pb-2 font-medium">Item</th>
+                    <th className="pb-2 font-medium">Tipo</th>
+                    <th className="pb-2 text-right font-medium">Qtd.</th>
+                    <th className="pb-2 text-right font-medium">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dados.itens.map((i) => (
+                    <tr key={`${i.tipo}-${i.descricao}`} className="border-t border-slate-800/60" title={`Chamados: ${i.chamados.join(', ')}`}>
+                      <td className="py-1.5 text-slate-300">{i.descricao}</td>
+                      <td className="py-1.5 text-slate-400">{i.tipo === 'comprado' ? 'Comprado' : 'Trocado'}</td>
+                      <td className="py-1.5 text-right tabular-nums text-slate-200">{i.quantidade.toLocaleString('pt-BR')}</td>
+                      <td className="py-1.5 text-right tabular-nums text-slate-400">{i.valorTotal ? `R$ ${i.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Secao>
         </div>
       ) : null}
 
