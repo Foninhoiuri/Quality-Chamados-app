@@ -11,6 +11,7 @@ import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { parseTiposLocal, siglaDoTipo, tipoLocalDe } from '@/lib/locais'
 import { baixarCsv } from '@/lib/relatorioCsv'
 import { parseCatalogo, ResumoPedidos } from '@/components/pedidos/ResumoPedidos'
+import { SaldosConsignados } from '@/components/pedidos/Saldos'
 import { SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
 import type { MonthlyReport, TipoRegistroDef } from '@/lib/types'
 
@@ -299,6 +300,12 @@ export default function Relatorios() {
           {dados.pedidos && dados.pedidos.pedidos > 0 && (
             <Secao titulo="Controles & Tags" hint="Pedidos do mês pela data do pedido: por tipo de item, por local com valor, e o total.">
               <ResumoPedidos r={dados.pedidos} catalogo={catalogo} />
+            </Secao>
+          )}
+
+          {!!dados.pedidos?.saldos?.length && (
+            <Secao titulo="Saldo consignado" hint="O que cada local ainda tem do lote HOJE — não depende do mês escolhido. Cada pedido de morador marcado “do saldo” abate daqui.">
+              <SaldosConsignados saldos={dados.pedidos.saldos} catalogo={catalogo} />
             </Secao>
           )}
 

@@ -454,7 +454,7 @@ describe('pedidos (Controles & Tags)', () => {
   ]
   async function lancar(token: string, extra: Record<string, unknown> = {}) {
     const local = await prisma.local.create({ data: { code: `LC-P${Math.floor(Math.random() * 1e6)}`, name: 'Cond Pedido' } })
-    const res = await app.inject({ method: 'POST', url: '/pedidos', headers: comToken(token), payload: { localId: local.id, bloco: 'B', apartamento: '42', itens, ...extra } })
+    const res = await app.inject({ method: 'POST', url: '/pedidos', headers: comToken(token), payload: { localId: local.id, bloco: 'B', apartamento: '42', portao: 'Garagem', itens, ...extra } })
     expect(res.statusCode, res.body).toBe(200)
     return res.json()
   }
@@ -512,12 +512,18 @@ describe('pedidos (Controles & Tags)', () => {
     const lote = await lancar(operador, { modalidade: 'lote', apartamento: '' })
     const etapa = (id: string, payload: any) => app.inject({ method: 'POST', url: `/pedidos/${id}/etapa`, headers: comToken(tecnico), payload })
     expect((await etapa(lote.id, { etapa: 'feito', seriais: 'X' })).statusCode).toBe(400) // lote não tem "feito"
-    expect((await etapa(lote.id, { etapa: 'pago', comprovantes: [PNG2] })).statusCode).toBe(200)
+    // Lote é consignado: não se paga na hora — quem paga é o pedido do morador que abate do saldo.
+    expect((await etapa(lote.id, { etapa: 'pago', comprovantes: [PNG2] })).statusCode).toBe(400)
     expect((await etapa(lote.id, { etapa: 'entregue' })).statusCode).toBe(200)
 
     const man = await lancar(operador, { modalidade: 'manutencao', itens: [{ categoria: 'manutencao', item: 'troca-de-pilha', quantidade: 1 }] })
     expect((await etapa(man.id, { etapa: 'pago', comprovantes: [PNG2] })).statusCode).toBe(400) // manutenção não tem "pago"
-    expect((await etapa(man.id, { etapa: 'feito' })).statusCode).toBe(200) // resolvido, sem serial
+    // Manutenção fecha com decisão (resolvido ou não) e o que aconteceu — sem serial.
+    expect((await etapa(man.id, { etapa: 'feito' })).statusCode).toBe(400)
+    expect((await etapa(man.id, { etapa: 'feito', resultado: 'nao_resolvido' })).statusCode).toBe(400)
+    const fechada = await etapa(man.id, { etapa: 'feito', resultado: 'nao_resolvido', resultadoObs: 'placa queimada' })
+    expect(fechada.statusCode).toBe(200)
+    expect(fechada.json().resultado).toBe('nao_resolvido')
     expect((await etapa(man.id, { etapa: 'entregue' })).statusCode).toBe(200)
   })
 
@@ -536,5 +542,95 @@ describe('pedidos (Controles & Tags)', () => {
     expect((await post({ localId: local.id, apartamento: '1', itens: [] })).statusCode).toBe(400)
     expect((await post({ localId: local.id, itens })).statusCode).toBe(400)
     expect((await post({ localId: local.id, modalidade: 'lote', itens })).statusCode).toBe(200)
+  })
+})
+
+describe('lote consignado e saldo do local', () => {
+  const tag = { categoria: 'tag', item: 'nice', quantidade: 1 }
+  const post = (token: string, payload: any) => app.inject({ method: 'POST', url: '/pedidos', headers: comToken(token), payload })
+  const saldoDe = async (localId: string) => {
+    const lista = (await app.inject({ method: 'GET', url: '/pedidos/saldos', headers: comToken(admin) })).json()
+    return lista.find((s: any) => s.localId === localId)
+  }
+
+  it('local com lote: todo pedido de morador abate, sem escolha, e o saldo pode ficar negativo', async () => {
+    const local = await prisma.local.create({ data: { code: 'LC-SALDO', name: 'Cond Saldo', usaLote: true } })
+    expect(await saldoDe(local.id), 'sem lote não há saldo').toBeUndefined()
+
+    expect((await post(operador, { localId: local.id, modalidade: 'lote', itens: [{ ...tag, quantidade: 3 }] })).statusCode).toBe(200)
+    expect((await saldoDe(local.id)).saldo).toBe(3)
+
+    // "doSaldo" mandado pela tela é ignorado: quem decide é o cadastro do local.
+    const p1 = await post(operador, { localId: local.id, apartamento: '11', itens: [{ ...tag, quantidade: 2 }], doSaldo: false })
+    expect(p1.statusCode, p1.body).toBe(200)
+    expect(p1.json().doSaldo).toBe(true)
+    expect((await saldoDe(local.id)).saldo).toBe(1)
+
+    // Faltando saldo, não trava: fica negativo.
+    expect((await post(operador, { localId: local.id, apartamento: '12', itens: [{ ...tag, quantidade: 2 }] })).statusCode).toBe(200)
+    expect((await saldoDe(local.id)).saldo).toBe(-1)
+
+    // Apagar devolve.
+    expect((await app.inject({ method: 'DELETE', url: `/pedidos/${p1.json().id}`, headers: comToken(operador) })).statusCode).toBe(200)
+    expect((await saldoDe(local.id)).saldo).toBe(1)
+  })
+
+  it('local sem lote não abate; manutenção e lote nunca abatem', async () => {
+    const local = await prisma.local.create({ data: { code: 'LC-SEM', name: 'Cond Sem Lote' } })
+    const p = await post(operador, { localId: local.id, apartamento: '1', itens: [tag], doSaldo: true })
+    expect(p.json().doSaldo).toBe(false)
+    const comLote = await prisma.local.create({ data: { code: 'LC-COM', name: 'Cond Com Lote', usaLote: true } })
+    const lote = await post(operador, { localId: comLote.id, modalidade: 'lote', itens: [tag] })
+    expect(lote.json().doSaldo).toBe(false)
+    const man = await post(operador, { localId: comLote.id, apartamento: '1', modalidade: 'manutencao', itens: [{ categoria: 'manutencao', item: 'troca-de-pilha', quantidade: 1 }] })
+    expect(man.json().doSaldo).toBe(false)
+  })
+
+  it('o relatório conta o lote como consignado, não como item vendido', async () => {
+    const local = await prisma.local.create({ data: { code: 'LC-REL', name: 'Cond Relatorio', usaLote: true } })
+    await post(operador, { localId: local.id, modalidade: 'lote', itens: [{ ...tag, quantidade: 5 }] })
+    await post(operador, { localId: local.id, apartamento: '1', itens: [tag] })
+    const r = (await app.inject({ method: 'GET', url: `/pedidos/relatorio?localId=${local.id}`, headers: comToken(admin) })).json()
+    expect(r.resumo.itens).toBe(1)
+    expect(r.resumo.consignado).toBe(5)
+    expect(r.saldos[0].saldo).toBe(4)
+  })
+})
+
+describe('pedido: portão e datas das etapas', () => {
+  it('controle e tag veicular perguntam o portão; tag comum não', async () => {
+    const local = await prisma.local.create({ data: { code: 'LC-PORT', name: 'Cond Portão' } })
+    const post = (payload: any) => app.inject({ method: 'POST', url: '/pedidos', headers: comToken(operador), payload: { localId: local.id, apartamento: '1', ...payload } })
+    expect((await post({ itens: [{ categoria: 'controle', item: 'nice-new-evo', quantidade: 1 }] })).statusCode).toBe(400)
+    expect((await post({ itens: [{ categoria: 'controle', item: 'nice-new-evo', quantidade: 1 }], portao: 'Garagem' })).json().portao).toBe('Garagem')
+    expect((await post({ itens: [{ categoria: 'tag', item: 'nice', quantidade: 1 }] })).statusCode).toBe(200)
+  })
+
+  it('data de etapa marcada só muda com ajustar_datas_pedido', async () => {
+    const local = await prisma.local.create({ data: { code: 'LC-DATA', name: 'Cond Datas' } })
+    const p = (await app.inject({ method: 'POST', url: '/pedidos', headers: comToken(admin), payload: { localId: local.id, apartamento: '1', itens: [{ categoria: 'tag', item: 'nice', quantidade: 1 }] } })).json()
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    expect((await app.inject({ method: 'POST', url: `/pedidos/${p.id}/etapa`, headers: comToken(admin), payload: { etapa: 'pago', comprovantes: [PNG] } })).statusCode).toBe(200)
+    const ontem = new Date(Date.now() - 86400000).toISOString()
+    const patch = (token: string, payload: any) => app.inject({ method: 'PATCH', url: `/pedidos/${p.id}`, headers: comToken(token), payload })
+    expect((await patch(tecnico, { pagoEm: ontem })).statusCode, 'técnico não tem a permissão').toBe(403)
+    expect((await patch(admin, { feitoEm: ontem })).statusCode, 'etapa não marcada').toBe(400)
+    const ok = await patch(admin, { pagoEm: ontem })
+    expect(ok.statusCode, ok.body).toBe(200)
+    expect(new Date(ok.json().pagoEm).toISOString()).toBe(ontem)
+  })
+})
+
+describe('locais', () => {
+  it('coordenada nula não vira pino em 0,0', async () => {
+    const res = await app.inject({ method: 'POST', url: '/locais', headers: comToken(admin), payload: { name: 'Sem Endereço', lat: null, lng: null } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().lat).toBeNull()
+  })
+
+  it('usa lote e itens do pedido ficam no cadastro', async () => {
+    const res = await app.inject({ method: 'POST', url: '/locais', headers: comToken(admin), payload: { name: 'Com Lote', usaLote: true, itensPedido: ['tag|nice', 'lixo'] } })
+    expect(res.json().usaLote).toBe(true)
+    expect(res.json().itensPedido).toEqual(['tag|nice'])
   })
 })

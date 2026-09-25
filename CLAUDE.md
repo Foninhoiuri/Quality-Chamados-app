@@ -75,9 +75,19 @@ Não edite o campo `version` à mão nem no meio de um commit — quem manda é 
   apartamento obrigatório fora do lote. Itens vêm do catálogo `pedido_catalogo` (categoria → itens,
   com valor) e o pedido COPIA nome e valor no dia — mudar o catálogo não reescreve pedido.
   Etapas em ordem, por modalidade (desmarca só a última): **pedido** pago → feito → entregue;
-  **lote** pago → entregue (o condomínio configura); **manutenção** resolvido → entregue (usa o campo
-  de feito). Pago exige comprovante (lançar com comprovante já nasce pago); feito do pedido exige
-  serial ou foto do serial. Serial sempre em MAIÚSCULAS. Categorias do catálogo são `item` ou
+  **lote** só entregue (é CONSIGNADO: não se paga na hora); **manutenção** resolvido/não resolvido
+  → entregue (usa o campo de feito, com `resultado` e `resultadoObs` obrigatórios). Pago exige
+  comprovante (lançar com comprovante já nasce pago); feito do pedido exige serial ou foto do
+  serial. Serial sempre em MAIÚSCULAS. Data de etapa já marcada só se edita com
+  `ajustar_datas_pedido`. Categoria com `pedePortao` (controle, tag veicular) faz o pedido novo
+  exigir o **portão**.
+- **Saldo consignado**: o lote entra no local em quantidade. Abater NÃO é escolha de quem
+  lança: todo pedido de morador em local com `usaLote` abate (`doSaldo`, decidido pelo
+  servidor quando o pedido nasce ou muda de local/modalidade — não ponha botão para isso).
+  Sem trava: faltando, o saldo fica **negativo**. O saldo é SEMPRE calculado (lote − pedidos
+  do saldo, por local e item), nunca guardado — apagar um pedido devolve a unidade. Nos
+  resumos, unidade de lote conta como `consignado`, não como item vendido (senão a mesma tag
+  conta duas vezes). O local diz se `usaLote` e quais `itensPedido` usa (vazio = catálogo inteiro). Categorias do catálogo são `item` ou
   `manutencao` (serviço, ex.: troca de pilha). Valor só sai do servidor com `ver_valores_pedido`. Quem lança edita/apaga o próprio; o dos outros tem permissão
   própria. Comprovante de pedido alheio só com `ver_comprovantes` — sem ela o servidor nem manda o
   caminho do arquivo. Comprovante aceita imagem ou PDF (só aqui).

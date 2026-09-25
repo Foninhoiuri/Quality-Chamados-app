@@ -33,6 +33,11 @@ export async function ensureBaseData() {
   }
   await prisma.setting.deleteMany({ where: { key: 'sla_hours' } })
 
+  // Local criado pelo cadastro embutido (no chamado) nascia com o pino em 0,0 — o `null`
+  // da coordenada virava zero. Sem pino, o "Localizar no mapa" volta a aparecer para ele.
+  const noOceano = await prisma.local.updateMany({ where: { lat: 0, lng: 0 }, data: { lat: null, lng: null } })
+  if (noOceano.count) console.log(`[bootstrap] ${noOceano.count} local(is) com pino em 0,0 ficaram sem pino`)
+
   const versaoAtual = (await prisma.setting.findUnique({ where: { key: 'roles_versao' } }))?.value
   const redefinir = versaoAtual !== ROLES_VERSAO
 

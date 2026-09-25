@@ -104,6 +104,11 @@ model Local {
   // Coordenadas do pino no mapa. Vêm do endereço (geocodificação) ou digitadas à mão.
   lat       Float?
   lng       Float?
+  // Controles & Tags: o local trabalha com lote CONSIGNADO (o condomínio recebe em
+  // quantidade e cada pedido de morador abate do saldo) e quais itens do catálogo ele usa —
+  // JSON ["categoria|item"]; vazio = todos.
+  usaLote     Boolean @default(false)
+  itensPedido String  @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   tickets   Ticket[]
@@ -249,6 +254,14 @@ model Pedido {
   fotos        String    @default("[]") // fotos do serial / do controle, a qualquer momento
   seriais      String    @default("") // um por linha
   observacao   String    @default("")
+  // Portão em que o controle / a tag veicular vai ser configurado.
+  portao       String    @default("")
+  // Pedido de morador atendido com o que o condomínio já tem CONSIGNADO (lote): abate do
+  // saldo do local em vez de sair do nosso estoque. O saldo é sempre calculado, nunca guardado.
+  doSaldo      Boolean   @default(false)
+  // Manutenção: o "feito" é uma decisão — resolvido ou não — sempre com o que aconteceu.
+  resultado    String    @default("") // '' | resolvido | nao_resolvido
+  resultadoObs String    @default("")
   comprovantes String    @default("[]") // caminhos /uploads/... (imagem ou PDF)
   pagoEm       DateTime?
   pagoPor      String?

@@ -46,6 +46,7 @@ export const PERMISSIONS: PermDef[] = [
   { id: 'ver_pedidos', label: 'Ver Controles & Tags', module: 'Controles & Tags' },
   { id: 'criar_pedidos', label: 'Lançar pedidos (e editar/apagar os próprios)', module: 'Controles & Tags' },
   { id: 'marcar_etapas_pedido', label: 'Marcar pago, feito e entregue', module: 'Controles & Tags' },
+  { id: 'ajustar_datas_pedido', label: 'Editar data e hora de etapa já marcada (pago, feito, entregue)', module: 'Controles & Tags' },
   { id: 'editar_pedidos', label: 'Editar pedidos de outras pessoas', module: 'Controles & Tags' },
   { id: 'excluir_pedidos', label: 'Excluir pedidos de outras pessoas', module: 'Controles & Tags' },
   { id: 'ver_comprovantes', label: 'Ver comprovante de pedidos de outras pessoas', module: 'Controles & Tags' },

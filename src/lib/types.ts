@@ -150,6 +150,10 @@ export interface Local {
   /** Coordenadas do pino no mapa — vêm do endereço, quando ele é encontrado. */
   lat?: number | null
   lng?: number | null
+  /** Controles & Tags: trabalha com lote consignado (pedido do morador abate do saldo). */
+  usaLote?: boolean
+  /** Itens do catálogo que o local usa, "categoria|item". Vazio = todos. */
+  itensPedido?: string[]
   /** Contagens do local: em aberto agora, quantos desses já têm técnico, e o total de sempre. */
   ticketCount?: number
   ticketsAtivos?: number
@@ -257,6 +261,8 @@ export interface Overview {
   porStatus: { key: string; label: string; fase: FaseChamado; total: number }[]
   fila: Ticket[]
   ultimosRegistros: Registro[]
+  /** Controles & Tags na janela e o saldo consignado de agora; `null` sem `ver_pedidos`. */
+  pedidos?: { resumo: ResumoPedidos; saldos: SaldoLocal[] } | null
 }
 
 /** Retorno de GET /reports/monthly. */
@@ -307,8 +313,11 @@ export interface MonthlyReport {
 export type ModalidadePedido = 'pedido' | 'manutencao' | 'lote'
 /** Catálogo: categoria (Controle) → itens (Nice New Evo), com valor opcional. */
 export interface ItemCatalogo { key: string; label: string; valor: number | null }
-/** `tipo`: 'item' é o que se vende (controle, tag); 'manutencao' é serviço (troca de pilha). */
-export interface CategoriaCatalogo { key: string; label: string; color: string; tipo?: 'item' | 'manutencao'; itens: ItemCatalogo[] }
+/**
+ * `tipo`: 'item' é o que se vende (controle, tag); 'manutencao' é serviço (troca de pilha).
+ * `pedePortao`: vai configurado num portão (controle, tag veicular) — o pedido pergunta qual.
+ */
+export interface CategoriaCatalogo { key: string; label: string; color: string; tipo?: 'item' | 'manutencao'; pedePortao?: boolean; itens: ItemCatalogo[] }
 /** Item do pedido — nomes e valor copiados do catálogo no dia do pedido. */
 export interface ItemPedido { categoria: string; categoriaLabel: string; item: string; itemLabel: string; quantidade: number; valor: number | null }
 export interface Pedido {
@@ -324,6 +333,13 @@ export interface Pedido {
   itens: ItemPedido[]
   seriais: string
   observacao: string
+  /** Portão em que o controle / a tag veicular vai configurado. */
+  portao: string
+  /** Pedido de morador atendido com o que o condomínio tem consignado: abate do saldo. */
+  doSaldo: boolean
+  /** Manutenção: o "feito" é resolvido ou não resolvido, com o que aconteceu. */
+  resultado: '' | 'resolvido' | 'nao_resolvido'
+  resultadoObs: string
   /** Vazio para quem não pode ver comprovante — `qtdComprovantes` diz se existe. */
   comprovantes: string[]
   qtdComprovantes: number
@@ -344,17 +360,36 @@ export interface Pedido {
 /** Resumo de Controles & Tags — no relatório mensal e no relatório próprio. */
 export interface ResumoPedidos {
   pedidos: number
+  /** Unidades vendidas/feitas — o lote fica de fora (é consignado, conta quando o morador pede). */
   itens: number
+  /** Unidades que entraram em lote (consignado) no período. */
+  consignado?: number
+  /** Das `itens`, quantas saíram do saldo consignado. */
+  doSaldo?: number
   /** `null` = sem permissão para ver valores. */
   valor: number | null
   entregues: number
   porModalidade: Record<string, number>
   porItem: { categoria: string; categoriaLabel: string; item: string; itemLabel: string; quantidade: number; valor: number | null }[]
   porLocal: { nome: string; pedidos: number; itens: number; valor: number | null }[]
+  /** Só no relatório mensal: o saldo consignado de hoje dos locais com lote. */
+  saldos?: SaldoLocal[]
+}
+/** Saldo consignado de um local: o que entrou em lote, o que os pedidos já usaram e o que resta. */
+export interface LinhaSaldo { categoria: string; categoriaLabel: string; item: string; itemLabel: string; consignado: number; usado: number; saldo: number }
+export interface SaldoLocal {
+  localId: string
+  localName: string
+  itens: LinhaSaldo[]
+  consignado: number
+  usado: number
+  saldo: number
 }
 export interface RelatorioPedidos {
   periodo: { inicio: string; fim: string; mes: string }
   comValores: boolean
   resumo: ResumoPedidos
+  /** Saldo de AGORA (não do período) dos locais com lote. */
+  saldos?: SaldoLocal[]
   lista: Pedido[]
 }

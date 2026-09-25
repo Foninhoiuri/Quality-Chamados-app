@@ -121,6 +121,7 @@ export default function Locais() {
       code: l.code, name: l.name, tipo: l.tipo ?? '', cep: l.cep ?? '',
       city: l.city, address: l.address, number: l.number ?? '', complement: l.complement ?? '',
       note: l.note, lat: l.lat ?? null, lng: l.lng ?? null,
+      usaLote: !!l.usaLote, itensPedido: [...(l.itensPedido ?? [])],
     })
     setEditing(l)
   }
@@ -225,6 +226,7 @@ export default function Locais() {
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ color: t.color, background: `${t.color}1e` }}>{t.label}</span>
                       ) : null
                     })()}
+                    {l.usaLote && <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300" title="Recebe controles e tags em lote consignado">Lote</span>}
                   </div>
                   <div className="truncate font-medium text-slate-100">{l.name}</div>
                 </div>

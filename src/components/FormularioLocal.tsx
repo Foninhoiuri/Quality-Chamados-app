@@ -3,8 +3,9 @@ import { Loader2, MapPin, Plus, Crosshair, X, RefreshCw } from 'lucide-react'
 import { Button, Field, FieldBox, Input, Textarea } from './ui'
 import { BuscaEndereco } from './EnderecoPicker'
 import { api } from '@/lib/api'
-import { useStore } from '@/lib/store'
+import { useCan, useStore } from '@/lib/store'
 import { parseTiposLocal } from '@/lib/locais'
+import { parseCatalogo } from './pedidos/ResumoPedidos'
 
 export interface LocalForm {
   code: string
@@ -20,9 +21,13 @@ export interface LocalForm {
   note: string
   lat: number | null
   lng: number | null
+  /** Controles & Tags: o local recebe lote consignado. */
+  usaLote: boolean
+  /** Itens do catálogo que o local usa ("categoria|item"); vazio = todos. */
+  itensPedido: string[]
 }
 
-export const LOCAL_VAZIO: LocalForm = { code: '', name: '', tipo: '', cep: '', address: '', number: '', complement: '', city: '', note: '', lat: null, lng: null }
+export const LOCAL_VAZIO: LocalForm = { code: '', name: '', tipo: '', cep: '', address: '', number: '', complement: '', city: '', note: '', lat: null, lng: null, usaLote: false, itensPedido: [] }
 
 const soDigitos = (v: string) => v.replace(/\D/g, '')
 const formatarCep = (v: string) => {
@@ -42,7 +47,10 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
   /** Abre o mapa com o pino no meio, para o ajuste fino. */
   onAbrirMapa?: () => void
 }) {
-  const tipos = parseTiposLocal(useStore((s) => s.settings))
+  const settings = useStore((s) => s.settings)
+  const tipos = parseTiposLocal(settings)
+  const catalogo = parseCatalogo(settings).filter((c) => c.tipo !== 'manutencao')
+  const verPedidos = useCan('ver_pedidos')
   const [buscando, setBuscando] = useState(false)
   const [erroCep, setErroCep] = useState<string | null>(null)
   // Endereço aberto: ou já veio preenchido (edição), ou o CEP acabou de trazer.
@@ -230,6 +238,42 @@ export function FormularioLocal({ form, onChange, onAbrirMapa }: {
             </div>
           )}
         </>
+      )}
+
+      {/* Controles & Tags: como o local compra. Lote consignado = o condomínio recebe em
+          quantidade e cada pedido de morador abate do saldo. Os itens marcados são os únicos
+          que aparecem no pedido deste local (nenhum marcado = todos). */}
+      {verPedidos && catalogo.length > 0 && (
+        <FieldBox label="Controles & Tags" hint="o que este local usa">
+          <label className="mb-2 flex cursor-pointer items-center gap-2 text-[13px] text-slate-200">
+            <input type="checkbox" checked={form.usaLote} onChange={(e) => onChange({ ...form, usaLote: e.target.checked })} className="h-4 w-4 accent-violet-500" />
+            Usa pedido em lote (consignado)
+          </label>
+          <div className="space-y-1.5">
+            {catalogo.map((c) => (
+              <div key={c.key} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-24 shrink-0 truncate text-[11px] text-slate-500">{c.label}</span>
+                {c.itens.map((i) => {
+                  const k = `${c.key}|${i.key}`
+                  const on = form.itensPedido.includes(k)
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => onChange({ ...form, itensPedido: on ? form.itensPedido.filter((x) => x !== k) : [...form.itensPedido, k] })}
+                      className="rounded-full border px-2.5 py-0.5 text-[12px]"
+                      style={on ? { color: c.color, background: `${c.color}1e`, borderColor: `${c.color}66` } : { color: '#94a3b8', borderColor: '#334155' }}
+                    >
+                      {i.label}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+          {form.itensPedido.length === 0 && <div className="mt-1 text-[11px] text-slate-500">Nenhum marcado: o pedido deste local mostra o catálogo inteiro.</div>}
+        </FieldBox>
       )}
 
       {obsAberta ? (

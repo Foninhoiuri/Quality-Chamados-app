@@ -5,6 +5,49 @@ mudou sem ler o histórico do git, e para saber o que precisa ser conferido depo
 
 ---
 
+## 25/09/2026 — lote consignado, portão e manutenção resolvida ou não
+
+### Lote virou saldo consignado
+
+O condomínio que pede em lote **não paga na hora**: o lote entra como **consignado** e vira
+saldo do local, item por item. Quem decide é o **cadastro do local** ("usa pedido em
+lote"): nesse local, **todo** pedido de morador sai do saldo, sem botão nem escolha — o
+formulário só avisa e mostra quanto sobra de cada item. Faltando, o saldo fica **negativo**
+(em vermelho), que é o sinal de que precisa de outro lote. Apagar o pedido devolve a unidade.
+O saldo aparece em três lugares: no topo de Controles & Tags, no Dashboard e nos relatórios
+(o mensal e o de Controles & Tags). Nos totais, unidade de lote conta à parte, como
+consignada — somar o lote e o pedido contaria a mesma tag duas vezes.
+
+> **Atenção ao subir:** o lote deixou de ter a etapa "pago". Lotes antigos já pagos
+> continuam com a data gravada, mas o cartão mostra só "entregue".
+
+### No cadastro do local
+
+- **Usa pedido em lote (consignado)** — marca o local que trabalha assim.
+- **Quais itens o local usa** — marcados, só eles aparecem no pedido daquele local.
+
+### Pedido
+
+- **Portão**: controle e tag veicular perguntam em qual portão vão ser configurados (o
+  editor de categorias diz quais categorias perguntam). Os portões já usados no local viram
+  sugestão.
+- **Manutenção fecha como resolvida ou não resolvida**, sempre com o que aconteceu.
+- **Datas das etapas** (pago, feito, entregue) editáveis no "Editar", com a permissão nova
+  *Editar data e hora de etapa já marcada* (`ajustar_datas_pedido`). Vai para a auditoria.
+- **Dashboard** ganhou o resumo de Controles & Tags da janela: pedidos, unidades, por tipo,
+  por modelo e por modalidade.
+
+### Locais: dois bugs
+
+- O tipo de local criado ou alterado por outra pessoa, e o local que um colega cadastrou,
+  só apareciam depois de recarregar a página. Agora locais e configurações se atualizam a
+  cada minuto e ao voltar para a aba.
+- O local criado pelo cadastro embutido (dentro do chamado) nascia com o pino em **0,0**, no
+  meio do oceano — a coordenada vazia virava zero. Corrigido; os que já estavam assim
+  ficam sem pino no próximo boot, e o "Localizar no mapa" volta a aparecer para eles.
+
+---
+
 ## 22/09/2026 — endereço em partes e o pino que não aparecia
 
 ### Por que os locais não entravam no mapa

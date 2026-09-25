@@ -76,7 +76,7 @@ interface AppState {
   deleteNotif: (id: string) => Promise<void>
   clearNotifs: () => Promise<void>
 
-  addLocal: (input: Partial<Local>) => Promise<void>
+  addLocal: (input: Partial<Local>) => Promise<Local>
   updateLocal: (id: string, patch: Partial<Local>) => Promise<void>
   removeLocal: (id: string) => Promise<void>
 
@@ -237,8 +237,9 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   addLocal: async (input) => {
-    await api.createLocal(input)
+    const criado = await api.createLocal(input)
     await get().refreshLocais()
+    return criado
   },
   updateLocal: async (id, patch) => {
     await api.updateLocal(id, patch)

@@ -35,9 +35,10 @@ export function baixarPedidosPdf(d: RelatorioPedidos, nomeMes: string, nomeLocal
     ['Pedidos', String(r.pedidos)],
     ['Itens', String(r.itens)],
     ['Entregues', String(r.entregues)],
+    ...(r.consignado ? [['Consignado', `${r.consignado} un.`] as [string, string]] : []),
     ...(cv ? [['Valor total', brl(r.valor ?? 0)] as [string, string]] : []),
   ]
-  const colunas = 4
+  const colunas = kpis.length
   const larguraCaixa = (largura - MARGEM * 2 - 3 * (colunas - 1)) / colunas
   let y = 34
   kpis.forEach(([label, valor], i) => {
@@ -80,6 +81,12 @@ export function baixarPedidosPdf(d: RelatorioPedidos, nomeMes: string, nomeLocal
     ['Total', r.pedidos, r.itens, ...(cv ? [brl(r.valor ?? 0)] : [])],
   ])
 
+  if (d.saldos?.length) {
+    secao('Saldo consignado (hoje)')
+    tabela(['Local', 'Item', 'Consignado', 'Usado', 'Resta'],
+      d.saldos.flatMap((s) => s.itens.map((i) => [s.localName, `${i.categoriaLabel} · ${i.itemLabel}`, i.consignado, i.usado, i.saldo])))
+  }
+
   secao(`Pedidos do mês (${d.lista.length})`)
   tabela(
     ['Pedido', 'Onde', 'Itens', ...(cv ? ['Valor'] : []), 'Pago', 'Feito', 'Entregue'],
@@ -87,7 +94,8 @@ export function baixarPedidosPdf(d: RelatorioPedidos, nomeMes: string, nomeLocal
       const total = p.itens.reduce((s, i) => s + (i.valor ?? 0) * i.quantidade, 0)
       return [
         `${p.code}\n${MODALIDADE[p.modalidade] ?? p.modalidade}\n${dataHora(p.pedidoEm)}`,
-        [p.localName ?? '—', p.bloco && `Bloco ${p.bloco}`, p.apartamento && `Apto ${p.apartamento}`].filter(Boolean).join(' · ') + (p.solicitante ? `\n${p.solicitante}` : ''),
+        [p.localName ?? '—', p.bloco && `Bloco ${p.bloco}`, p.apartamento && `Apto ${p.apartamento}`].filter(Boolean).join(' · ')
+          + (p.portao ? `\nPortão: ${p.portao}` : '') + (p.doSaldo ? '\ndo saldo consignado' : '') + (p.solicitante ? `\n${p.solicitante}` : ''),
         p.itens.map((i) => `${i.quantidade}× ${i.itemLabel}`).join('\n') + (p.seriais ? `\nSN ${p.seriais.split('\n').filter(Boolean).join(', ')}` : ''),
         ...(cv ? [total ? brl(total) : '—'] : []),
         dataHora(p.pagoEm), dataHora(p.feitoEm), dataHora(p.entregueEm),

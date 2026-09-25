@@ -349,6 +349,8 @@ export function Layout() {
   const showToast = useStore((s) => s.showToast)
   const refreshTickets = useStore((s) => s.refreshTickets)
   const refreshNotifications = useStore((s) => s.refreshNotifications)
+  const refreshLocais = useStore((s) => s.refreshLocais)
+  const refreshSettings = useStore((s) => s.refreshSettings)
   const setApiOnline = useStore((s) => s.setApiOnline)
   const online = useStore((s) => s.apiOnline)
   const location = useLocation()
@@ -403,6 +405,28 @@ export function Layout() {
     const id = setInterval(tick, 12000)
     return () => clearInterval(id)
   }, [refreshTickets, refreshNotifications, setApiOnline, perms, buscarNovidades, enviarPendentes])
+
+  /*
+   * Locais e configurações (tipos de local, colunas, catálogo) também mudam pela mão dos
+   * outros. Carregados só no login, o local que um colega criou "não existia" e o tipo novo
+   * não aparecia no cadastro — até a pessoa recarregar a página. Um minuto basta, e ao
+   * voltar para a aba vem na hora.
+   */
+  useEffect(() => {
+    const recarregar = () => {
+      refreshLocais().catch(() => {})
+      refreshSettings().catch(() => {})
+    }
+    const aoVoltar = () => { if (document.visibilityState === 'visible') recarregar() }
+    const id = setInterval(recarregar, 60000)
+    document.addEventListener('visibilitychange', aoVoltar)
+    window.addEventListener('focus', recarregar)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', aoVoltar)
+      window.removeEventListener('focus', recarregar)
+    }
+  }, [refreshLocais, refreshSettings])
 
   const pontoNaRota = (rota: string) => {
     const area = AREA_DA_ROTA[rota]

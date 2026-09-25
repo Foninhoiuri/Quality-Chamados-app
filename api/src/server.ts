@@ -624,8 +624,22 @@ app.get('/uploads/:name', async (req: any, reply) => {
 
 const LOCAL_FIELDS = ['code', 'name', 'city', 'address', 'number', 'complement', 'cep', 'phone', 'note', 'tipo'] as const
 
+/** Os campos de Controles & Tags do local: usa lote consignado e quais itens do catálogo. */
+function lerPedidosDoLocal(b: any, data: any) {
+  if ('usaLote' in b) data.usaLote = !!b.usaLote
+  if ('itensPedido' in b) {
+    const lista = Array.isArray(b.itensPedido) ? b.itensPedido : parseJsonArray(b.itensPedido)
+    data.itensPedido = JSON.stringify([...new Set(lista.map((x: any) => String(x).slice(0, 90)).filter((x: string) => x.includes('|')))].slice(0, 100))
+  }
+}
+const shapeLocal = (l: any) => ({ ...l, itensPedido: parseJsonArray(l.itensPedido) })
+
 /** Coordenada vinda do formulário (pino arrastado no mapa ou sugestão de endereço escolhida). */
 function lerCoordenada(b: any): { lat: number; lng: number } | null {
+  // `null` e vazio são "sem pino" — Number(null) é 0, e o local nascia no meio do oceano
+  // (0,0) em vez de ser procurado pelo endereço.
+  const vazio = (v: any) => v === null || v === undefined || v === ''
+  if (vazio(b?.lat) || vazio(b?.lng)) return null
   const lat = Number(b?.lat)
   const lng = Number(b?.lng)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
@@ -805,7 +819,7 @@ app.get('/locais', async (req: any, reply) => {
   }
   return locais.map((l) => {
     const c = por[l.id] ?? zero()
-    return { ...l, ticketCount: c.ativos, ticketsAtivos: c.ativos, ticketsAndamento: c.andamento, ticketsTotal: c.total }
+    return { ...shapeLocal(l), ticketCount: c.ativos, ticketsAtivos: c.ativos, ticketsAndamento: c.andamento, ticketsTotal: c.total }
   })
 })
 
@@ -818,12 +832,13 @@ app.post('/locais', async (req: any, reply) => {
   if (!name) return reply.code(400).send({ error: 'informe o nome do local' })
   const data: any = { code: String(b.code ?? '').trim() || (await nextLocalCode()), name }
   for (const k of ['city', 'address', 'number', 'complement', 'cep', 'phone', 'note', 'tipo'] as const) if (k in b) data[k] = String(b[k] ?? '')
+  lerPedidosDoLocal(b, data)
   // Coordenada que veio do formulário manda; só sem ela o endereço é geocodificado.
   const coord = lerCoordenada(b) ?? (await geocodificar(data))
   if (coord) { data.lat = coord.lat; data.lng = coord.lng }
   const l = await prisma.local.create({ data })
   await audit(u, 'criar', 'local', l.name, l.name, l.city || undefined)
-  return l
+  return shapeLocal(l)
 })
 
 app.patch('/locais/:id', async (req: any, reply) => {
@@ -835,6 +850,7 @@ app.patch('/locais/:id', async (req: any, reply) => {
   const b = req.body ?? {}
   const data: any = {}
   for (const k of LOCAL_FIELDS) if (k in b) data[k] = String(b[k] ?? '')
+  lerPedidosDoLocal(b, data)
   if ('name' in data && !data.name.trim()) return reply.code(400).send({ error: 'informe o nome do local' })
   const manual = lerCoordenada(b)
   if (manual) {
@@ -862,9 +878,10 @@ app.patch('/locais/:id', async (req: any, reply) => {
     { key: 'name', label: 'Nome' }, { key: 'code', label: 'Código' }, { key: 'city', label: 'Cidade' },
     { key: 'address', label: 'Endereço' }, { key: 'number', label: 'Número' },
     { key: 'complement', label: 'Complemento' }, { key: 'phone', label: 'Telefone' },
+    { key: 'usaLote', label: 'Usa lote consignado', fmt: (v) => (v ? 'sim' : 'não') },
   ])
   await audit(u, 'editar', 'local', l.name, l.name, detail || undefined)
-  return l
+  return shapeLocal(l)
 })
 
 /** Tenta (de novo) achar a coordenada deste local pelo endereço. */
@@ -884,7 +901,7 @@ app.post('/locais/:id/geocode', async (req: any, reply) => {
       : reply.code(422).send({ error: 'não foi possível achar este endereço no mapa — confira a rua, o número e a cidade' })
   }
   const atualizado = await prisma.local.update({ where: { id: l.id }, data: coord })
-  return atualizado
+  return shapeLocal(atualizado)
 })
 
 app.delete('/locais/:id', async (req: any, reply) => {
@@ -1939,6 +1956,12 @@ app.get('/stats/overview', async (req: any, reply) => {
       return statuses.map((s) => ({ key: s.key, label: s.label, fase: s.fase ?? 'andamento', total: naJanela.filter((t) => t.status === s.key).length }))
     })(),
     fila: await shapeTickets(naFila.slice(0, 6)),
+    // Controles & Tags na mesma janela (pela data do pedido) e o saldo consignado de agora.
+    pedidos: u.perms.has('ver_pedidos') ? await (async () => {
+      const nomes = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((l) => [l.id, l.name]))
+      const resumo = resumoParaQuemVe(u, await pedidosDoMes(u, new Date(agora - janela * DIA_MS), new Date(agora + 60000)), nomes)
+      return { resumo, saldos: await saldosVisiveis(u) }
+    })() : null,
     ultimosRegistros: u.perms.has('ver_registros')
       ? await shapeRegistros((await prisma.registro.findMany({ orderBy: { ocorridoEm: 'desc' }, take: 50 })).filter((r) => canSeeRegistro(u, r, ids)).slice(0, 6))
       : [],
@@ -2099,13 +2122,9 @@ app.get('/reports/monthly', async (req: any, reply) => {
     porTipoLocal,
     // Controles & Tags do mês — só para quem enxerga os pedidos.
     pedidos: u.perms.has('ver_pedidos') ? await (async () => {
-      const r: any = resumoPedidos(await pedidosDoMes(u, inicio, fim, localId || undefined), nomesLocais)
-      if (!podeVerValores(u)) {
-        r.valor = null
-        r.porItem = r.porItem.map((x: any) => ({ ...x, valor: null }))
-        r.porLocal = r.porLocal.map((x: any) => ({ ...x, valor: null }))
-      }
-      return r
+      const r = resumoParaQuemVe(u, await pedidosDoMes(u, inicio, fim, localId || undefined), nomesLocais)
+      // O saldo consignado é o de hoje, não o do mês — o que cada local ainda tem guardado.
+      return { ...r, saldos: await saldosVisiveis(u, localId || undefined) }
     })() : null,
     porDia,
     lista: lista.map((t) => ({
@@ -2136,12 +2155,15 @@ app.get('/reports/monthly', async (req: any, reply) => {
  * `pedido_catalogo`, editável na própria tela.
  */
 interface ItemCatalogo { key: string; label: string; valor: number | null }
-/** `tipo`: 'item' é o que se vende (controle, tag); 'manutencao' é serviço (troca de pilha). */
-interface CategoriaCatalogo { key: string; label: string; color: string; tipo?: 'item' | 'manutencao'; itens: ItemCatalogo[] }
+/**
+ * `tipo`: 'item' é o que se vende (controle, tag); 'manutencao' é serviço (troca de pilha).
+ * `pedePortao`: o item é configurado num portão (controle, tag veicular) — o pedido pergunta qual.
+ */
+interface CategoriaCatalogo { key: string; label: string; color: string; tipo?: 'item' | 'manutencao'; pedePortao?: boolean; itens: ItemCatalogo[] }
 const CATALOGO_PADRAO: CategoriaCatalogo[] = [
-  { key: 'controle', label: 'Controle', color: '#38bdf8', tipo: 'item', itens: [{ key: 'nice-new-evo', label: 'Nice New Evo', valor: null }] },
+  { key: 'controle', label: 'Controle', color: '#38bdf8', tipo: 'item', pedePortao: true, itens: [{ key: 'nice-new-evo', label: 'Nice New Evo', valor: null }] },
   { key: 'tag', label: 'Tag', color: '#34d399', tipo: 'item', itens: [{ key: 'nice', label: 'Nice', valor: null }] },
-  { key: 'tag-veicular', label: 'Tag veicular', color: '#fbbf24', tipo: 'item', itens: [{ key: 'controlid', label: 'ControlID', valor: null }] },
+  { key: 'tag-veicular', label: 'Tag veicular', color: '#fbbf24', tipo: 'item', pedePortao: true, itens: [{ key: 'controlid', label: 'ControlID', valor: null }] },
   { key: 'manutencao', label: 'Manutenção', color: '#f472b6', tipo: 'manutencao', itens: [{ key: 'troca-de-pilha', label: 'Troca de pilha', valor: null }] },
 ]
 async function catalogoPedidos(): Promise<CategoriaCatalogo[]> {
@@ -2149,16 +2171,19 @@ async function catalogoPedidos(): Promise<CategoriaCatalogo[]> {
   if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a) && a.length) return a } catch { /* usa o padrão */ } }
   return CATALOGO_PADRAO
 }
+/** Catálogo antigo, sem a marca: controle e tag veicular são os que vão num portão. */
+const pedePortao = (c: CategoriaCatalogo | undefined) => !!c && (c.pedePortao ?? ['controle', 'tag-veicular'].includes(c.key))
 const MODALIDADES_PEDIDO = new Set(['pedido', 'manutencao', 'lote'])
 /**
  * As etapas andam em ordem e cada modalidade tem o seu caminho. Desmarcar, só a última.
  * - pedido: pago → feito → entregue
- * - lote: pago → entregue (o condomínio mesmo configura; só compra com a gente)
- * - manutenção: resolvido → entregue (é revisão e decisão; "resolvido" usa o campo de feito)
+ * - lote: entregue. O lote é CONSIGNADO: o condomínio recebe e não paga na hora — o que
+ *   se paga e se faz são os pedidos dos moradores, que abatem do saldo (`doSaldo`).
+ * - manutenção: resolvido/não resolvido → entregue (usa o campo de feito, com `resultado`)
  */
 const ETAPAS_PEDIDO = ['pago', 'feito', 'entregue'] as const
 type EtapaPedido = (typeof ETAPAS_PEDIDO)[number]
-const FLUXO_PEDIDO: Record<string, EtapaPedido[]> = { pedido: ['pago', 'feito', 'entregue'], lote: ['pago', 'entregue'], manutencao: ['feito', 'entregue'] }
+const FLUXO_PEDIDO: Record<string, EtapaPedido[]> = { pedido: ['pago', 'feito', 'entregue'], lote: ['entregue'], manutencao: ['feito', 'entregue'] }
 const fluxoDe = (modalidade: string) => FLUXO_PEDIDO[modalidade] ?? FLUXO_PEDIDO.pedido
 const CAMPOS_ETAPA: Record<EtapaPedido, [string, string]> = { pago: ['pagoEm', 'pagoPor'], feito: ['feitoEm', 'feitoPor'], entregue: ['entregueEm', 'entreguePor'] }
 const nextPedidoCode = async () => nextCode('PD', 4, await prisma.pedido.findMany({ select: { code: true } }))
@@ -2173,6 +2198,35 @@ const podeVerComprovante = (u: AuthUser, p: any) => ehAutor(u, p) || u.perms.has
 const podeVerValores = (u: AuthUser) => u.perms.has('ver_valores_pedido') || u.perms.has('gerenciar_catalogo_pedidos')
 /** Sem `ver_valores_pedido` o valor não sai do servidor — nem no pedido, nem no catálogo. */
 const semValor = (itens: any[]) => itens.map((i) => ({ ...i, valor: null }))
+
+/**
+ * SALDO CONSIGNADO. O lote entra no condomínio em quantidade; cada pedido de morador
+ * de local que `usaLote` sai dele (`doSaldo`, gravado quando o pedido nasce ou muda de local).
+ * Não há trava: faltando saldo, ele fica NEGATIVO — é o sinal de que precisa de outro lote.
+ * O saldo é sempre a conta (consignado − usado), nunca um número guardado — apagar um
+ * pedido devolve a unidade sem ninguém mexer em nada.
+ * Chave: localId → "categoria|item".
+ */
+interface LinhaSaldo { categoria: string; categoriaLabel: string; item: string; itemLabel: string; consignado: number; usado: number; saldo: number }
+function calcularSaldos(ps: any[]): Map<string, Map<string, LinhaSaldo>> {
+  const out = new Map<string, Map<string, LinhaSaldo>>()
+  for (const p of ps) {
+    if (!p.localId || (p.modalidade !== 'lote' && !(p.modalidade === 'pedido' && p.doSaldo))) continue
+    const doLocal = out.get(p.localId) ?? new Map<string, LinhaSaldo>()
+    for (const i of parseJsonArray(p.itens) as any[]) {
+      const k = `${i.categoria}|${i.item}`
+      const l = doLocal.get(k) ?? { categoria: i.categoria, categoriaLabel: i.categoriaLabel, item: i.item, itemLabel: i.itemLabel, consignado: 0, usado: 0, saldo: 0 }
+      if (p.modalidade === 'lote') l.consignado += i.quantidade
+      else l.usado += i.quantidade
+      l.saldo = l.consignado - l.usado
+      doLocal.set(k, l)
+    }
+    out.set(p.localId, doLocal)
+  }
+  return out
+}
+const pedidosDeSaldo = (where: any = {}) => prisma.pedido.findMany({ where: { ...where, OR: [{ modalidade: 'lote' }, { doSaldo: true }] } })
+
 
 /**
  * O comprovante é dado de pagamento: quem não lançou o pedido e não tem
@@ -2247,6 +2301,7 @@ async function lerPedido(b: any, antes?: any, verValores = true): Promise<{ data
   // Serial é sempre em maiúsculas: é assim que vem gravado no aparelho e que se procura.
   if ('seriais' in b) data.seriais = String(b.seriais ?? '').toUpperCase().slice(0, 5000)
   if ('observacao' in b) data.observacao = String(b.observacao ?? '').slice(0, 5000)
+  if ('portao' in b) data.portao = String(b.portao ?? '').trim().slice(0, 80)
   if ('pedidoEm' in b && b.pedidoEm) {
     const d = new Date(String(b.pedidoEm))
     if (Number.isNaN(d.getTime())) return { erro: 'data do pedido inválida' }
@@ -2276,6 +2331,40 @@ async function lerPedido(b: any, antes?: any, verValores = true): Promise<{ data
   // Pedido e manutenção são de uma unidade: sem apartamento não se sabe a quem entregar.
   if (modalidade !== 'lote' && !apto) return { erro: 'informe o apartamento' }
   if (modalidade === 'lote') { data.apartamento = ''; data.bloco = '' }
+  /*
+   * Abater do saldo não é escolha de quem lança: é o LOCAL que diz se usa lote. Pedido de
+   * morador em local com lote abate sempre; lote é o próprio saldo e manutenção não gasta
+   * aparelho. Recalcula só quando o pedido nasce ou muda de local/modalidade — desligar o
+   * lote do local depois não reescreve o que já saiu do saldo.
+   */
+  const localId = 'localId' in data ? data.localId : antes?.localId
+  if (!antes || 'localId' in data || 'modalidade' in data) {
+    const local = localId ? await prisma.local.findUnique({ where: { id: localId }, select: { usaLote: true } }) : null
+    data.doSaldo = modalidade === 'pedido' && !!local?.usaLote
+  }
+  // Controle e tag veicular vão num portão: o pedido novo já nasce dizendo qual.
+  if (!antes && modalidade === 'pedido' && 'itens' in data) {
+    const cat = await catalogoPedidos()
+    const precisa = (JSON.parse(data.itens) as any[]).some((i) => pedePortao(cat.find((c) => c.key === i.categoria)))
+    if (precisa && !data.portao) return { erro: 'informe em qual portão vai ser configurado' }
+  }
+  return { data }
+}
+
+const fmtBr = (d: Date) => d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+/** Datas das etapas já marcadas, acertadas à mão (`ajustar_datas_pedido`). */
+function lerDatasEtapas(b: any, antes: any): { data: any } | { erro: string } {
+  const data: any = {}
+  for (const e of ETAPAS_PEDIDO) {
+    const [em] = CAMPOS_ETAPA[e]
+    if (!(em in b) || !b[em]) continue
+    if (!antes[em]) return { erro: `a etapa "${e}" não está marcada` }
+    const d = new Date(String(b[em]))
+    if (Number.isNaN(d.getTime())) return { erro: `data de "${e}" inválida` }
+    if (d.getTime() > Date.now() + 5 * 60000) return { erro: `a data de "${e}" não pode ser no futuro` }
+    data[em] = d
+  }
   return { data }
 }
 
@@ -2289,11 +2378,21 @@ function resumoPedidos(ps: any[], nomesLocais: Record<string, string>) {
   const porModalidade: Record<string, number> = { pedido: 0, manutencao: 0, lote: 0 }
   let valor = 0
   let itens = 0
+  // Lote é consignado: as unidades só contam quando um morador as pede (pedido do saldo).
+  // Somar o lote E o pedido contaria a mesma tag duas vezes.
+  let consignado = 0
+  let doSaldo = 0
   for (const p of ps) {
     porModalidade[p.modalidade] = (porModalidade[p.modalidade] ?? 0) + 1
     const nome = p.localId ? nomesLocais[p.localId] ?? '—' : 'Sem local'
     const l = porLocal.get(nome) ?? { nome, pedidos: 0, itens: 0, valor: 0 }
     l.pedidos++
+    porLocal.set(nome, l)
+    if (p.modalidade === 'lote') {
+      for (const i of parseJsonArray(p.itens) as any[]) consignado += i.quantidade
+      continue
+    }
+    if (p.doSaldo) doSaldo += (parseJsonArray(p.itens) as any[]).reduce((s, i) => s + i.quantidade, 0)
     for (const i of parseJsonArray(p.itens) as any[]) {
       const v = (Number(i.valor) || 0) * i.quantidade
       const k = `${i.categoria}|${i.item}`
@@ -2306,12 +2405,13 @@ function resumoPedidos(ps: any[], nomesLocais: Record<string, string>) {
       itens += i.quantidade
       valor += v
     }
-    porLocal.set(nome, l)
   }
   const r2 = (n: number) => Math.round(n * 100) / 100
   return {
     pedidos: ps.length,
     itens,
+    consignado,
+    doSaldo,
     valor: r2(valor),
     entregues: ps.filter((p) => p.entregueEm).length,
     porModalidade,
@@ -2320,12 +2420,48 @@ function resumoPedidos(ps: any[], nomesLocais: Record<string, string>) {
   }
 }
 
+/** O resumo, sem os valores para quem não tem `ver_valores_pedido`. */
+function resumoParaQuemVe(u: AuthUser, ps: any[], nomesLocais: Record<string, string>) {
+  const r: any = resumoPedidos(ps, nomesLocais)
+  if (!podeVerValores(u)) {
+    r.valor = null
+    r.porItem = r.porItem.map((x: any) => ({ ...x, valor: null }))
+    r.porLocal = r.porLocal.map((x: any) => ({ ...x, valor: null }))
+  }
+  return r
+}
+
 /** Pedidos de um mês (pela data do pedido), dentro do que a pessoa pode ver. */
 async function pedidosDoMes(u: AuthUser, inicio: Date, fim: Date, localId?: string) {
   const ids = scopeIds(u)
   const ps = await prisma.pedido.findMany({ where: { pedidoEm: { gte: inicio, lt: fim }, ...(localId ? { localId } : {}) }, orderBy: { pedidoEm: 'asc' } })
   return ps.filter((p) => canSeePedido(u, p, ids))
 }
+
+/**
+ * Saldo consignado de cada local que a pessoa enxerga — é o estado de AGORA, não do
+ * período: o que o condomínio ainda tem guardado (ou deve, quando negativo).
+ */
+async function saldosVisiveis(u: AuthUser, localId?: string) {
+  const ids = scopeIds(u)
+  const ps = (await pedidosDeSaldo(localId ? { localId } : {})).filter((p) => canSeePedido(u, p, ids) && (!ids || (p.localId && ids.includes(p.localId))))
+  const locais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((l) => [l.id, l.name]))
+  return [...calcularSaldos(ps).entries()]
+    .map(([id, m]) => {
+      const itens = [...m.values()].filter((x) => x.consignado > 0 || x.usado > 0).sort((a, b) => a.categoriaLabel.localeCompare(b.categoriaLabel) || a.itemLabel.localeCompare(b.itemLabel))
+      const soma = (k: 'consignado' | 'usado' | 'saldo') => itens.reduce((s, x) => s + x[k], 0)
+      return { localId: id, localName: locais[id] ?? '—', itens, consignado: soma('consignado'), usado: soma('usado'), saldo: soma('saldo') }
+    })
+    // Local que já usou sem ter recebido lote entra também: é o saldo negativo, a ser acertado.
+    .filter((x) => x.consignado > 0 || x.usado > 0)
+    .sort((a, b) => b.saldo - a.saldo || a.localName.localeCompare(b.localName))
+}
+
+app.get('/pedidos/saldos', async (req: any, reply) => {
+  const u = await guard(req, reply, 'ver_pedidos')
+  if (!u) return
+  return saldosVisiveis(u)
+})
 
 /** Relatório próprio de Controles & Tags: o resumo no topo e cada pedido do mês. */
 app.get('/pedidos/relatorio', async (req: any, reply) => {
@@ -2341,17 +2477,13 @@ app.get('/pedidos/relatorio', async (req: any, reply) => {
   const fim = new Date(ano, mes + 1, 1)
   const nomesLocais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((l) => [l.id, l.name]))
   const ps = await pedidosDoMes(u, inicio, fim, localId || undefined)
-  const resumo: any = resumoPedidos(ps, nomesLocais)
+  const resumo = resumoParaQuemVe(u, ps, nomesLocais)
   const comValores = podeVerValores(u)
-  if (!comValores) {
-    resumo.valor = null
-    resumo.porItem = resumo.porItem.map((x: any) => ({ ...x, valor: null }))
-    resumo.porLocal = resumo.porLocal.map((x: any) => ({ ...x, valor: null }))
-  }
   return {
     periodo: { inicio: inicio.toISOString(), fim: fim.toISOString(), mes: `${ano}-${String(mes + 1).padStart(2, '0')}` },
     comValores,
     resumo,
+    saldos: await saldosVisiveis(u, localId || undefined),
     lista: await shapePedidos(u, ps),
   }
 })
@@ -2377,8 +2509,9 @@ app.post('/pedidos', async (req: any, reply) => {
   const lido = await lerPedido({ modalidade: 'pedido', ...b }, undefined, podeVerValores(u))
   if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
   if (outOfScope(u, lido.data.localId, reply)) return
-  // Lançado já com comprovante = já está pago: é o caminho normal do operador.
-  const pago = parseJsonArray(lido.data.comprovantes).length > 0 ? { pagoEm: new Date(), pagoPor: u.name } : {}
+  // Lançado já com comprovante = já está pago: é o caminho normal do operador. Lote é
+  // consignado — não tem etapa de pagamento.
+  const pago = lido.data.modalidade !== 'lote' && parseJsonArray(lido.data.comprovantes).length > 0 ? { pagoEm: new Date(), pagoPor: u.name } : {}
   const p = await prisma.pedido.create({ data: { ...lido.data, ...pago, code: await nextPedidoCode(), autorId: u.sub, autorName: u.name } })
   const localName = (await prisma.local.findUnique({ where: { id: p.localId! }, select: { name: true } }))?.name
   await audit(u, 'criar', 'pedido', p.code, localName, [p.modalidade, [p.bloco && `bloco ${p.bloco}`, p.apartamento && `apto ${p.apartamento}`].filter(Boolean).join(' ')].filter(Boolean).join(' · '))
@@ -2391,9 +2524,21 @@ app.patch('/pedidos/:id', async (req: any, reply) => {
   const antes = await prisma.pedido.findUnique({ where: { id: req.params.id } })
   if (!antes || !u.perms.has('ver_pedidos') || !canSeePedido(u, antes, scopeIds(u))) return reply.code(404).send()
   let b = req.body ?? {}
+  // Datas das etapas: só com permissão própria — são elas que dizem quando foi pago e entregue.
+  let datas: any = {}
+  if (ETAPAS_PEDIDO.some((e) => CAMPOS_ETAPA[e][0] in b)) {
+    const quer = ETAPAS_PEDIDO.some((e) => { const k = CAMPOS_ETAPA[e][0]; return b[k] && new Date(b[k]).getTime() !== (antes as any)[k]?.getTime() })
+    if (quer && !u.perms.has('ajustar_datas_pedido')) return reply.code(403).send({ error: 'sem permissão para mudar as datas das etapas' })
+    if (quer) {
+      const lidas = lerDatasEtapas(b, antes)
+      if ('erro' in lidas) return reply.code(400).send({ error: lidas.erro })
+      datas = lidas.data
+    }
+    for (const e of ETAPAS_PEDIDO) delete b[CAMPOS_ETAPA[e][0]]
+  }
   if (!podeEditarPedido(u, antes)) {
     // Quem só marca etapas ainda anexa foto e serial — é quem configura o controle.
-    if (!u.perms.has('marcar_etapas_pedido')) return reply.code(403).send({ error: 'sem permissão' })
+    if (!u.perms.has('marcar_etapas_pedido') && !Object.keys(datas).length) return reply.code(403).send({ error: 'sem permissão' })
     b = Object.fromEntries(Object.entries(b).filter(([k]) => k === 'fotos' || k === 'seriais'))
   }
   // Quem não vê o comprovante recebe a lista vazia — salvar de volta não pode apagá-lo.
@@ -2406,8 +2551,9 @@ app.patch('/pedidos/:id', async (req: any, reply) => {
   const lido = await lerPedido(b, antes, podeVerValores(u))
   if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
   if (lido.data.localId && outOfScope(u, lido.data.localId, reply)) return
-  const p = await prisma.pedido.update({ where: { id: antes.id }, data: lido.data })
-  await audit(u, 'editar', 'pedido', p.code)
+  const p = await prisma.pedido.update({ where: { id: antes.id }, data: { ...lido.data, ...datas } })
+  const mudouDatas = Object.keys(datas).map((k) => `${k.replace('Em', '')} → ${fmtBr(datas[k])}`).join('; ')
+  await audit(u, 'editar', 'pedido', p.code, undefined, mudouDatas ? `Datas: ${mudouDatas}` : undefined)
   return (await shapePedidos(u, [p]))[0]
 })
 
@@ -2434,6 +2580,7 @@ app.post('/pedidos/:id/etapa', async (req: any, reply) => {
     const seguinte = fluxo[i + 1]
     if (seguinte && marcada(seguinte)) return reply.code(400).send({ error: `desmarque "${seguinte}" antes` })
     data[em] = null; data[por] = null
+    if (etapa === 'feito' && antes.modalidade === 'manutencao') { data.resultado = ''; data.resultadoObs = '' }
   } else {
     const anterior = fluxo[i - 1]
     if (anterior && !marcada(anterior)) return reply.code(400).send({ error: `marque "${anterior}" antes` })
@@ -2451,12 +2598,22 @@ app.post('/pedidos/:id/etapa', async (req: any, reply) => {
     if (etapa === 'pago' && !comprovantes.length) return reply.code(400).send({ error: 'anexe o comprovante para marcar como pago' })
     // Serial é prova do controle configurado; na manutenção "resolvido" é decisão, não pede.
     if (etapa === 'feito' && antes.modalidade === 'pedido' && !seriais && !fotos.length) return reply.code(400).send({ error: 'informe o serial ou anexe a foto do serial para marcar como feito' })
+    // Manutenção fecha com uma decisão — resolvido ou não — e sempre com o que aconteceu.
+    if (etapa === 'feito' && antes.modalidade === 'manutencao') {
+      const resultado = String(b.resultado ?? '')
+      const obs = String(b.resultadoObs ?? '').trim().slice(0, 2000)
+      if (resultado !== 'resolvido' && resultado !== 'nao_resolvido') return reply.code(400).send({ error: 'diga se foi resolvido ou não' })
+      if (!obs) return reply.code(400).send({ error: 'descreva o que aconteceu na manutenção' })
+      data.resultado = resultado
+      data.resultadoObs = obs
+    }
     data[em] = b.quando ? new Date(String(b.quando)) : new Date()
     if (Number.isNaN(data[em].getTime())) return reply.code(400).send({ error: 'data inválida' })
     data[por] = u.name
   }
   const p = await prisma.pedido.update({ where: { id: antes.id }, data })
-  await audit(u, 'editar', 'pedido', p.code, undefined, `${b.valor === false ? 'Desmarcou' : 'Marcou'} ${etapa}`)
+  const oQue = data.resultado ? (data.resultado === 'resolvido' ? 'resolvido' : 'não resolvido') : etapa
+  await audit(u, 'editar', 'pedido', p.code, undefined, `${b.valor === false ? 'Desmarcou' : 'Marcou'} ${oQue}${data.resultadoObs ? `: ${data.resultadoObs.slice(0, 200)}` : ''}`)
   return (await shapePedidos(u, [p]))[0]
 })
 
@@ -2558,6 +2715,7 @@ app.patch('/settings/:key', async (req: any, reply) => {
       label: String(c.label ?? '').trim().slice(0, 40),
       color: /^#[0-9a-fA-F]{6}$/.test(String(c.color ?? '')) ? String(c.color) : '#a1a1aa',
       tipo: c.tipo === 'manutencao' ? 'manutencao' : 'item',
+      pedePortao: c.tipo === 'manutencao' ? false : pedePortao(c),
       itens: (Array.isArray(c.itens) ? c.itens : []).slice(0, 50).map((i: any) => ({
         key: String(i.key ?? '').slice(0, 40),
         label: String(i.label ?? '').trim().slice(0, 60),

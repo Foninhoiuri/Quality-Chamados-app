@@ -37,10 +37,10 @@ export function LocalSelect({ value, onChange, allowEmpty = true, className }: {
     if (!name) return setErro('Informe o nome do local')
     setSalvando(true)
     try {
-      await addLocal({ ...novo, name } as any)
-      // O store recarrega a lista; o recém-criado é o único com este nome.
-      const criado = useStore.getState().locais.find((l) => l.name === name)
-      if (criado) onChange(criado.id)
+      // `lat`/`lng` só vão quando existem: sem elas o servidor procura pelo endereço.
+      const criado = await addLocal({ ...novo, name, ...(novo.lat == null ? { lat: undefined, lng: undefined } : {}) } as any)
+      // Pelo id que o servidor devolveu — procurar pelo nome pegava o outro local de mesmo nome.
+      onChange(criado.id)
       setNovo(LOCAL_VAZIO)
       setCriando(false)
       showToast('Local criado e selecionado')
@@ -92,7 +92,11 @@ export function LocalSelect({ value, onChange, allowEmpty = true, className }: {
       {podeCriar && (
         <button
           type="button"
-          onClick={() => setCriando(true)}
+          onClick={() => {
+            // Os tipos de local podem ter mudado pela mão de outra pessoa desde o login.
+            useStore.getState().refreshSettings().catch(() => {})
+            setCriando(true)
+          }}
           title="Cadastrar um local novo sem sair daqui"
           className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-700 px-2 py-[7px] text-[12px] text-slate-300 hover:border-red-700 hover:bg-red-500/5 hover:text-slate-100"
         >

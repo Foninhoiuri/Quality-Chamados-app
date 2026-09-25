@@ -1,23 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Plus, Search, Building2, Pencil, Trash2, Loader2, Phone, Tags, Package, Wrench, Boxes, Paperclip, X, Check, Minus, Undo2, CalendarClock, Camera, Lock, ChevronLeft, ChevronRight, CalendarDays, FileBarChart, Download, Hash, StickyNote, ChevronDown } from 'lucide-react'
+import { FileText, Plus, Search, Building2, Pencil, Trash2, Loader2, Phone, Tags, Package, Wrench, Boxes, Paperclip, X, Check, Minus, Undo2, CalendarClock, Camera, Lock, ChevronLeft, ChevronRight, CalendarDays, FileBarChart, Download, Hash, StickyNote, ChevronDown, DoorOpen } from 'lucide-react'
 import { Button, EmptyState, Field, FieldBox, Input, Modal, PageHeader, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { LocalSelect } from '@/components/LocalSelect'
 import { AvatarPessoa } from '@/components/Pessoa'
 import { PhotoInput } from '@/components/PhotoInput'
 import { Comprovantes, PreviaComprovante } from '@/components/pedidos/Comprovantes'
-import { brl, corDa, parseCatalogo, ResumoPedidos } from '@/components/pedidos/ResumoPedidos'
+import { brl, corDa, parseCatalogo, pedePortao, ResumoPedidos } from '@/components/pedidos/ResumoPedidos'
+import { SaldosConsignados } from '@/components/pedidos/Saldos'
 import { api } from '@/lib/api'
 import { paraInputLocal } from '@/lib/tickets'
 import { fmtDataHora } from '@/lib/utils'
 import { useClickFora } from '@/lib/useClickFora'
 import { CORES_CATEGORIA } from '@/lib/registros'
-import type { CategoriaCatalogo, ItemPedido, ModalidadePedido, Pedido, RelatorioPedidos } from '@/lib/types'
+import type { CategoriaCatalogo, ItemPedido, ModalidadePedido, Pedido, RelatorioPedidos, SaldoLocal } from '@/lib/types'
 
 const MODALIDADES: { id: ModalidadePedido; label: string; curto: string; icon: typeof Package; ajuda: string }[] = [
   { id: 'pedido', label: 'Pedido de controle', curto: 'Pedido', icon: Package, ajuda: 'Controle ou tag novo para uma unidade.' },
   { id: 'manutencao', label: 'Manutenção', curto: 'Manutenção', icon: Wrench, ajuda: 'Aparelho que voltou com defeito — anote o serial e o problema.' },
-  { id: 'lote', label: 'Pedido de lote', curto: 'Lote', icon: Boxes, ajuda: 'O condomínio pede em quantidade, sem unidade específica.' },
+  { id: 'lote', label: 'Pedido de lote', curto: 'Lote', icon: Boxes, ajuda: 'O condomínio recebe em quantidade, CONSIGNADO: cada pedido de morador abate do saldo.' },
 ]
 const modalidadeDe = (id: string) => MODALIDADES.find((m) => m.id === id) ?? MODALIDADES[0]
 
@@ -30,12 +31,15 @@ const ETAPA: Record<Etapa, EtapaDef> = {
 }
 /**
  * Cada modalidade tem o seu caminho (o servidor exige a mesma ordem):
- * pedido: pago → feito → entregue · lote: pago → entregue (o condomínio configura) ·
- * manutenção: resolvido → entregue (é revisão e decisão; "resolvido" usa o campo de feito).
+ * pedido: pago → feito → entregue · lote: entregue (é consignado: quem paga é o pedido do
+ * morador que abate do saldo) · manutenção: resolvido/não resolvido → entregue.
  */
-function etapasDe(modalidade: ModalidadePedido): EtapaDef[] {
-  if (modalidade === 'lote') return [ETAPA.pago, ETAPA.entregue]
-  if (modalidade === 'manutencao') return [{ ...ETAPA.feito, label: 'Resolvido', acao: 'Marcar resolvido', cor: '#f472b6' }, ETAPA.entregue]
+function etapasDe(modalidade: ModalidadePedido, p?: Pick<Pedido, 'resultado'>): EtapaDef[] {
+  if (modalidade === 'lote') return [{ ...ETAPA.entregue, label: 'Entregue (consignado)', acao: 'Entregar ao condomínio' }]
+  if (modalidade === 'manutencao') {
+    const nao = p?.resultado === 'nao_resolvido'
+    return [{ ...ETAPA.feito, label: nao ? 'Não resolvido' : 'Resolvido', acao: 'Fechar manutenção', cor: nao ? '#fb923c' : '#f472b6' }, ETAPA.entregue]
+  }
   return [ETAPA.pago, ETAPA.feito, ETAPA.entregue]
 }
 /** Tudo feito menos a entrega: é o que está na faixa de "prontos". */
@@ -94,7 +98,7 @@ function Etapas({ p, podeMarcar, onMarcar, onDesfazer, ocupado }: {
   onDesfazer: (e: Etapa) => void
   ocupado: Etapa | null
 }) {
-  const etapas = etapasDe(p.modalidade)
+  const etapas = etapasDe(p.modalidade, p)
   const proxima = etapas.find((e) => !p[e.em])?.id
   const ultima = [...etapas].reverse().find((e) => p[e.em])?.id
   const stop = (fn: () => void) => (ev: React.MouseEvent) => { ev.stopPropagation(); fn() }
@@ -104,9 +108,9 @@ function Etapas({ p, podeMarcar, onMarcar, onDesfazer, ocupado }: {
         if (p[e.em]) {
           return (
             <div key={e.id} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px]" style={{ color: e.cor, background: `${e.cor}14` }}>
-              <Check size={12} className="shrink-0" />
+              {e.id === 'feito' && p.resultado === 'nao_resolvido' ? <X size={12} className="shrink-0" /> : <Check size={12} className="shrink-0" />}
               <span className="font-semibold">{e.label}</span>
-              <span className="min-w-0 truncate text-slate-400">· {p[e.por]} · {fmtDataHora(p[e.em]!)}</span>
+              <span className="min-w-0 truncate text-slate-400" title={e.id === 'feito' && p.resultadoObs ? p.resultadoObs : undefined}>· {p[e.por]} · {fmtDataHora(p[e.em]!)}</span>
               {podeMarcar && ultima === e.id && (
                 <button onClick={stop(() => onDesfazer(e.id))} className="ml-auto shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title={`Desfazer ${e.label.toLowerCase()}`} aria-label={`Desfazer ${e.label.toLowerCase()}`}>
                   <Undo2 size={12} />
@@ -190,9 +194,14 @@ interface PForm {
   seriais: string
   observacao: string
   comprovantes: string[]
+  portao: string
+  doSaldo: boolean
+  /** Datas das etapas já marcadas — só se mexe com `ajustar_datas_pedido`. */
+  datas: Partial<Record<'pagoEm' | 'feitoEm' | 'entregueEm', string>>
 }
 const vazio = (modalidade: ModalidadePedido = 'pedido', localId = ''): PForm => ({
   modalidade, localId, bloco: '', apartamento: '', solicitante: '', pedidoEm: agoraLocal(), itens: [], seriais: '', observacao: '', comprovantes: [],
+  portao: '', doSaldo: false, datas: {},
 })
 
 /**
@@ -212,10 +221,13 @@ export default function Pedidos() {
   const canExcluirOutros = useCan('excluir_pedidos')
   const canCatalogo = useCan('gerenciar_catalogo_pedidos')
   const canValores = useCan('ver_valores_pedido') || canCatalogo
+  const canAjustarDatas = useCan('ajustar_datas_pedido')
 
   const catalogo = useMemo(() => parseCatalogo(settings), [settings])
 
   const [itens, setItens] = useState<Pedido[] | null>(null)
+  const [saldos, setSaldos] = useState<SaldoLocal[]>([])
+  const [verSaldos, setVerSaldos] = useState(false)
   const [modalidade, setModalidade] = useState<'' | ModalidadePedido>('')
   const [localId, setLocalId] = useState('')
   const [q, setQ] = useState('')
@@ -231,7 +243,7 @@ export default function Pedidos() {
   const [relatorio, setRelatorio] = useState(false)
   const [ocupado, setOcupado] = useState<{ id: string; etapa: Etapa } | null>(null)
   /** Janela que pede a prova da etapa: comprovante (pago) ou serial/foto (feito). */
-  const [prova, setProva] = useState<{ p: Pedido; etapa: Etapa; comprovantes: string[]; seriais: string; fotos: string[] } | null>(null)
+  const [prova, setProva] = useState<{ p: Pedido; etapa: Etapa; comprovantes: string[]; seriais: string; fotos: string[]; resultado?: 'resolvido' | 'nao_resolvido'; resultadoObs?: string } | null>(null)
   const [previa, setPrevia] = useState<string[] | null>(null)
   /** Serial sendo escrito no detalhe (null = fechado). */
   const [serialDetalhe, setSerialDetalhe] = useState<string | null>(null)
@@ -243,7 +255,10 @@ export default function Pedidos() {
   const [ate, setAte] = useState('')
 
   const carregar = useCallback(
-    () => api.pedidos().then(setItens).catch(() => { setItens([]); showToast('Não foi possível carregar os pedidos') }),
+    () => Promise.all([
+      api.pedidos().then(setItens).catch(() => { setItens([]); showToast('Não foi possível carregar os pedidos') }),
+      api.saldosPedidos().then(setSaldos).catch(() => {}),
+    ]),
     [showToast],
   )
   useEffect(() => { carregar() }, [carregar])
@@ -255,7 +270,8 @@ export default function Pedidos() {
   const podeFotos = (p: Pedido) => podeEditar(p) || canMarcar
 
   function openNew() {
-    setForm(vazio(modalidade || 'pedido', localId || (locais.length === 1 ? locais[0].id : '')))
+    const f = vazio(modalidade || 'pedido')
+    setForm(comLocal(f, localId || (locais.length === 1 ? locais[0].id : '')))
     setComSerial(false)
     setComObs(false)
     setComComprovante(false)
@@ -266,6 +282,8 @@ export default function Pedidos() {
       modalidade: p.modalidade, localId: p.localId ?? '', bloco: p.bloco, apartamento: p.apartamento,
       solicitante: p.solicitante ?? '', pedidoEm: paraInputLocal(p.pedidoEm), itens: p.itens.map((i) => ({ ...i })),
       seriais: p.seriais, observacao: p.observacao, comprovantes: [...p.comprovantes],
+      portao: p.portao ?? '', doSaldo: !!p.doSaldo,
+      datas: Object.fromEntries((['pagoEm', 'feitoEm', 'entregueEm'] as const).filter((k) => p[k]).map((k) => [k, paraInputLocal(p[k]!)])),
     })
     setComSerial(!!p.seriais)
     setComObs(!!p.observacao)
@@ -287,12 +305,21 @@ export default function Pedidos() {
     if (!form.localId) return showToast('Escolha o local do pedido')
     if (!lote && !form.apartamento.trim()) return showToast('Informe o apartamento')
     if (!form.itens.length) return showToast('Adicione ao menos um item')
+    if (editing === 'new' && precisaPortao && !form.portao.trim()) return showToast('Informe em qual portão vai ser configurado')
     const body: Record<string, unknown> = {
       modalidade: form.modalidade, localId: form.localId,
       bloco: lote ? '' : form.bloco.trim(), apartamento: lote ? '' : form.apartamento.trim(),
       solicitante: form.solicitante.trim() || null,
       pedidoEm: form.pedidoEm ? new Date(form.pedidoEm).toISOString() : undefined,
       itens: form.itens, seriais: form.seriais.trim(), observacao: form.observacao.trim(),
+      portao: precisaPortao ? form.portao.trim() : '',
+    }
+    // Datas das etapas: só vão quando mudaram — o servidor exige a permissão para isso.
+    if (editing && editing !== 'new' && canAjustarDatas) {
+      for (const k of ['pagoEm', 'feitoEm', 'entregueEm'] as const) {
+        const v = form.datas[k]
+        if (v && editing[k] && paraInputLocal(editing[k]!) !== v) body[k] = new Date(v).toISOString()
+      }
     }
     // Quem não vê o comprovante não o reenvia (recebeu a lista vazia).
     if (editing === 'new' || (editing && editing.podeVerComprovante)) body.comprovantes = form.comprovantes
@@ -331,15 +358,25 @@ export default function Pedidos() {
   function marcar(p: Pedido, etapa: Etapa) {
     if (etapa === 'pago' && !p.qtdComprovantes) return setProva({ p, etapa, comprovantes: [], seriais: '', fotos: [] })
     if (etapa === 'feito' && p.modalidade === 'pedido' && !p.seriais.trim() && !p.fotos.length) return setProva({ p, etapa, comprovantes: [], seriais: '', fotos: [] })
+    // Manutenção fecha sempre pela janela: resolvido ou não, e o que aconteceu.
+    if (etapa === 'feito' && p.modalidade === 'manutencao') return setProva({ p, etapa, comprovantes: [], seriais: '', fotos: [], resultadoObs: '' })
     enviarEtapa(p, etapa, true)
   }
 
   async function confirmarProva() {
     if (!prova) return
     const { p, etapa } = prova
+    const manutencao = etapa === 'feito' && p.modalidade === 'manutencao'
     if (etapa === 'pago' && !prova.comprovantes.length) return showToast('Anexe o comprovante')
-    if (etapa === 'feito' && !prova.seriais.trim() && !prova.fotos.length) return showToast('Informe o serial ou tire a foto do serial')
-    const extra = etapa === 'pago' ? { comprovantes: [...p.comprovantes, ...prova.comprovantes] } : { seriais: prova.seriais.trim(), fotos: prova.fotos }
+    if (manutencao) {
+      if (!prova.resultado) return showToast('Diga se foi resolvido ou não')
+      if (!prova.resultadoObs?.trim()) return showToast('Descreva o que aconteceu')
+    } else if (etapa === 'feito' && !prova.seriais.trim() && !prova.fotos.length) return showToast('Informe o serial ou tire a foto do serial')
+    const extra = etapa === 'pago'
+      ? { comprovantes: [...p.comprovantes, ...prova.comprovantes] }
+      : manutencao
+        ? { resultado: prova.resultado, resultadoObs: prova.resultadoObs!.trim() }
+        : { seriais: prova.seriais.trim(), fotos: prova.fotos }
     if (await enviarEtapa(p, etapa, true, extra)) setProva(null)
   }
 
@@ -390,6 +427,37 @@ export default function Pedidos() {
   const detalhe = aberto ? (itens ?? []).find((p) => p.id === aberto) ?? null : null
   useEffect(() => { setSerialDetalhe(null) }, [aberto])
   const lote = form.modalidade === 'lote'
+  const localDoForm = locais.find((l) => l.id === form.localId)
+  const saldoDoForm = saldos.find((s) => s.localId === form.localId)
+  /** Quanto resta de um item no saldo do local do formulário (somando o que ESTE pedido já tirou). */
+  const restaNoSaldo = (categoria: string, item: string) => {
+    const linha = saldoDoForm?.itens.find((i) => i.categoria === categoria && i.item === item)
+    if (!linha) return 0
+    const jaMeu = editing && editing !== 'new' && editing.doSaldo && editing.localId === form.localId
+      ? editing.itens.filter((i) => i.categoria === categoria && i.item === item).reduce((s, i) => s + i.quantidade, 0)
+      : 0
+    return linha.saldo + jaMeu
+  }
+  const precisaPortao = form.modalidade !== 'lote' && form.itens.some((i) => pedePortao(catalogo.find((c) => c.key === i.categoria)))
+  /** Os itens que o local usa (cadastro do local); vazio = o catálogo inteiro. */
+  const catalogoDoLocal = useMemo(() => {
+    const usa = localDoForm?.itensPedido ?? []
+    if (!usa.length) return catalogo
+    return catalogo.map((c) => (c.tipo === 'manutencao' ? c : { ...c, itens: c.itens.filter((i) => usa.includes(`${c.key}|${i.key}`)) })).filter((c) => c.itens.length)
+  }, [catalogo, localDoForm])
+  /** Portões já usados neste local — sugestão, não lista fechada. */
+  const portoesDoLocal = useMemo(
+    () => [...new Set((itens ?? []).filter((p) => p.localId === form.localId && p.portao).map((p) => p.portao))].sort(),
+    [itens, form.localId],
+  )
+  /**
+   * Abater do saldo não é escolha: é o LOCAL que diz se usa lote (o servidor decide igual).
+   * Aqui é só para a tela mostrar quanto sobra.
+   */
+  const comLocal = (f: PForm, localId: string, modalidade = f.modalidade): PForm => {
+    const usa = modalidade === 'pedido' && !!locais.find((l) => l.id === localId)?.usaLote
+    return { ...f, localId, modalidade, doSaldo: usa }
+  }
 
   const cartao = (p: Pedido) => {
     const m = modalidadeDe(p.modalidade)
@@ -407,6 +475,8 @@ export default function Pedidos() {
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-[10px] text-slate-500">{p.code}</span>
           <span className="inline-flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-300"><MIcon size={10} /> {m.curto}</span>
+          {p.modalidade === 'lote' && <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">Consignado</span>}
+          {p.doSaldo && <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300" title="Abatido do saldo consignado do local">do saldo</span>}
           <span className="ml-auto text-[10px] text-slate-500">{fmtDataHora(p.pedidoEm)}</span>
         </div>
         {/* Local, bloco e apartamento na mesma linha; quem pediu logo embaixo. */}
@@ -414,8 +484,10 @@ export default function Pedidos() {
           <Building2 size={13} className="shrink-0 text-slate-500" /> <span className="truncate">{ondeDe(p)}</span>
         </div>
         {p.solicitante && <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-slate-400"><Phone size={11} className="shrink-0" /> <span className="truncate">{p.solicitante}</span></div>}
+        {p.portao && <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-slate-400"><DoorOpen size={11} className="shrink-0" /> <span className="truncate">Portão: {p.portao}</span></div>}
 
         <div className="mt-1.5"><Itens itens={p.itens} catalogo={catalogo} /></div>
+        {p.resultadoObs && <p className="mt-1.5 line-clamp-2 text-[11px] text-slate-400"><span className={p.resultado === 'nao_resolvido' ? 'text-orange-400' : 'text-pink-400'}>{p.resultado === 'nao_resolvido' ? 'Não resolvido' : 'Resolvido'}:</span> {p.resultadoObs}</p>}
 
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
           {canValores && total > 0 && <span className="font-medium text-slate-300">{brl(total)}</span>}
@@ -514,6 +586,23 @@ export default function Pedidos() {
           </div>
         )}
       </div>
+
+      {/* Os locais que têm lote consignado e quanto ainda resta — o estado de agora. */}
+      {saldos.length > 0 && (
+        <section className="mb-5 rounded-lg border border-violet-900/40 bg-violet-500/[0.03] p-2">
+          <button onClick={() => setVerSaldos((v) => !v)} className="flex w-full items-center gap-2 px-1 py-0.5 text-left" aria-expanded={verSaldos}>
+            <Boxes size={14} className="text-violet-400" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-300">Saldo consignado</span>
+            <span className="text-[11px] text-slate-500">{saldos.length} local(is) · {saldos.reduce((s, x) => s + x.saldo, 0)} unidade(s) disponíveis</span>
+            <ChevronDown size={14} className={`ml-auto text-slate-500 transition-transform ${verSaldos ? 'rotate-180' : ''}`} />
+          </button>
+          {verSaldos && (
+            <div className="mt-2">
+              <SaldosConsignados saldos={saldos} catalogo={catalogo} onLocal={(id) => setLocalId(id)} />
+            </div>
+          )}
+        </section>
+      )}
 
       {itens === null ? (
         <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-slate-600" /></div>
@@ -622,10 +711,30 @@ export default function Pedidos() {
               )}
             </div>
 
+            {(detalhe.portao || detalhe.doSaldo || detalhe.modalidade === 'lote') && (
+              <div className="flex flex-wrap gap-1.5 text-[12px]">
+                {detalhe.portao && <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-0.5 text-slate-200"><DoorOpen size={12} className="text-slate-400" /> Portão: {detalhe.portao}</span>}
+                {detalhe.doSaldo && <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-violet-300">Abatido do saldo consignado</span>}
+                {detalhe.modalidade === 'lote' && (() => {
+                  const s = saldos.find((x) => x.localId === detalhe.localId)
+                  return <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-violet-300">Consignado{s ? ` · o local tem ${s.saldo} de ${s.consignado} em saldo` : ''}</span>
+                })()}
+              </div>
+            )}
+
             {detalhe.observacao && (
               <div>
                 <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{detalhe.modalidade === 'manutencao' ? 'Defeito' : 'Observação'}</div>
                 <p className="whitespace-pre-wrap text-slate-300">{detalhe.observacao}</p>
+              </div>
+            )}
+
+            {detalhe.resultadoObs && (
+              <div>
+                <div className={`text-[10px] font-medium uppercase tracking-wide ${detalhe.resultado === 'nao_resolvido' ? 'text-orange-400' : 'text-pink-400'}`}>
+                  {detalhe.resultado === 'nao_resolvido' ? 'Não resolvido' : 'Resolvido'} — o que aconteceu
+                </div>
+                <p className="whitespace-pre-wrap text-slate-300">{detalhe.resultadoObs}</p>
               </div>
             )}
 
@@ -663,12 +772,12 @@ export default function Pedidos() {
         <Modal
           open
           onClose={() => setProva(null)}
-          title={prova.etapa === 'pago' ? `Pagamento de ${prova.p.code}` : `Concluir ${prova.p.code}`}
+          title={prova.etapa === 'pago' ? `Pagamento de ${prova.p.code}` : prova.p.modalidade === 'manutencao' ? `Fechar manutenção ${prova.p.code}` : `Concluir ${prova.p.code}`}
           onSubmit={confirmarProva}
           footer={
             <>
               <Button variant="subtle" onClick={() => setProva(null)}>Cancelar</Button>
-              <Button onClick={confirmarProva} disabled={!!ocupado}>{ocupado && <Loader2 size={14} className="animate-spin" />} <Check size={14} /> {prova.etapa === 'pago' ? 'Marcar pago' : 'Marcar feito'}</Button>
+              <Button onClick={confirmarProva} disabled={!!ocupado}>{ocupado && <Loader2 size={14} className="animate-spin" />} <Check size={14} /> {prova.etapa === 'pago' ? 'Marcar pago' : prova.p.modalidade === 'manutencao' ? 'Fechar' : 'Marcar feito'}</Button>
             </>
           }
         >
@@ -676,6 +785,35 @@ export default function Pedidos() {
             <div className="space-y-3">
               <p className="text-sm text-slate-300">Para marcar como pago, anexe o comprovante (foto ou PDF).</p>
               <Comprovantes lista={prova.comprovantes} onChange={(comprovantes) => setProva({ ...prova, comprovantes })} />
+            </div>
+          ) : prova.p.modalidade === 'manutencao' ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Resultado da manutenção">
+                {([['resolvido', 'Resolvido', '#f472b6'], ['nao_resolvido', 'Não resolvido', '#fb923c']] as const).map(([v, l, cor]) => {
+                  const on = prova.resultado === v
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setProva({ ...prova, resultado: v })}
+                      className="flex items-center justify-center gap-1.5 rounded-lg border py-3 text-sm font-semibold"
+                      style={on ? { color: cor, borderColor: `${cor}99`, background: `${cor}1a` } : { color: '#94a3b8', borderColor: '#334155' }}
+                    >
+                      {v === 'resolvido' ? <Check size={15} /> : <X size={15} />} {l}
+                    </button>
+                  )
+                })}
+              </div>
+              <Field label="O que aconteceu" hint="obrigatório">
+                <Textarea
+                  rows={3}
+                  value={prova.resultadoObs ?? ''}
+                  onChange={(e) => setProva({ ...prova, resultadoObs: e.target.value })}
+                  placeholder={prova.resultado === 'nao_resolvido' ? 'Ex.: placa queimada, precisa trocar o controle' : 'Ex.: trocada a pilha e reconfigurado no portão da garagem'}
+                />
+              </Field>
             </div>
           ) : (
             <div className="space-y-3">
@@ -710,7 +848,7 @@ export default function Pedidos() {
                   type="button"
                   role="radio"
                   aria-checked={form.modalidade === m.id}
-                  onClick={() => setForm({ ...form, modalidade: m.id })}
+                  onClick={() => setForm(comLocal(form, form.localId, m.id))}
                   title={m.ajuda}
                   className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium ${form.modalidade === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
                 >
@@ -723,7 +861,7 @@ export default function Pedidos() {
           {/* Local, bloco e apartamento numa faixa só. */}
           <div className={`grid gap-2 ${lote ? 'grid-cols-1' : 'grid-cols-[minmax(0,1fr)_4.5rem_4.5rem]'}`}>
             <FieldBox label="Local">
-              <LocalSelect value={form.localId} onChange={(v) => setForm({ ...form, localId: v })} />
+              <LocalSelect value={form.localId} onChange={(v) => setForm(comLocal(form, v))} />
             </FieldBox>
             {!lote && <Field label="Bloco"><Input value={form.bloco} onChange={(e) => setForm({ ...form, bloco: e.target.value })} placeholder="—" /></Field>}
             {!lote && <Field label="Apto"><Input value={form.apartamento} onChange={(e) => setForm({ ...form, apartamento: e.target.value })} placeholder="42" /></Field>}
@@ -747,6 +885,10 @@ export default function Pedidos() {
                   <div key={k} className="flex flex-wrap items-center gap-2 rounded-lg border px-2 py-1.5" style={{ borderColor: `${cor}55`, background: `${cor}0c` }}>
                     <span className="min-w-0 flex-1 truncate text-[13px] text-slate-200">
                       <span className="text-[11px] text-slate-400">{i.categoriaLabel} · </span>{i.itemLabel}
+                      {form.doSaldo && form.modalidade === 'pedido' && (() => {
+                        const sobra = restaNoSaldo(i.categoria, i.item) - i.quantidade
+                        return <span className={`ml-1.5 text-[11px] ${sobra < 0 ? 'text-red-400' : 'text-violet-300'}`}>saldo fica {sobra}</span>
+                      })()}
                     </span>
                     <div className="flex items-center gap-1">
                       <button type="button" onClick={() => mudar({ quantidade: Math.max(1, i.quantidade - 1) })} className="rounded-md border border-slate-700 p-1 text-slate-300 hover:bg-slate-800" aria-label="Menos"><Minus size={12} /></button>
@@ -775,9 +917,10 @@ export default function Pedidos() {
                   verValores={canValores}
                   // Manutenção mostra os serviços primeiro (e os itens, se for trocar o aparelho);
                   // pedido e lote só os itens.
+                  // Só os itens que o local usa (cadastro do local), quando ele diz quais.
                   catalogo={form.modalidade === 'manutencao'
-                    ? [...catalogo.filter((c) => c.tipo === 'manutencao'), ...catalogo.filter((c) => c.tipo !== 'manutencao')]
-                    : catalogo.filter((c) => c.tipo !== 'manutencao')}
+                    ? [...catalogoDoLocal.filter((c) => c.tipo === 'manutencao'), ...catalogoDoLocal.filter((c) => c.tipo !== 'manutencao')]
+                    : catalogoDoLocal.filter((c) => c.tipo !== 'manutencao')}
                   onEscolher={(c, it) => {
                     const ja = form.itens.findIndex((x) => x.categoria === c.key && x.item === it.key)
                     setForm({
@@ -793,6 +936,37 @@ export default function Pedidos() {
             </div>
           </FieldBox>
 
+          {/* Controle e tag veicular vão num portão: é a primeira pergunta de quem configura. */}
+          {precisaPortao && (
+            <Field label="Portão" hint="em qual portão vai ser configurado">
+              <Input value={form.portao} onChange={(e) => setForm({ ...form, portao: e.target.value })} placeholder="Ex.: Garagem, Social, Eclusa bloco B" list="portoes-do-local" />
+              <datalist id="portoes-do-local">{portoesDoLocal.map((p) => <option key={p} value={p} />)}</datalist>
+            </Field>
+          )}
+
+          {/* Local com lote consignado: todo pedido de morador sai do saldo — sem escolha.
+              Faltando saldo, ele fica negativo (sinal de que precisa de outro lote). */}
+          {form.modalidade === 'pedido' && form.doSaldo && (
+            <div className="rounded-lg border border-violet-900/50 bg-violet-500/[0.05] px-3 py-2 text-[12px] text-slate-300">
+              <span className="font-medium text-violet-300">Abate do saldo consignado</span> — {localDoForm?.name ?? 'o local'} usa pedido em lote
+              {saldoDoForm ? <> e tem <span className={saldoDoForm.saldo < 0 ? 'text-red-400' : 'text-slate-100'}>{saldoDoForm.saldo}</span> de {saldoDoForm.consignado} unidade(s).</> : ', mas ainda não recebeu lote — o saldo vai ficar negativo.'}
+            </div>
+          )}
+
+          {/* Datas das etapas já marcadas: acerto à mão, com permissão própria. */}
+          {editing && editing !== 'new' && canAjustarDatas && Object.keys(form.datas).length > 0 && (
+            <FieldBox label="Datas das etapas" hint="corrija quando a marcação foi feita depois">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {etapasDe(editing.modalidade, editing).filter((e) => form.datas[e.em]).map((e) => (
+                  <label key={e.id} className="block">
+                    <span className="mb-1 block text-[11px]" style={{ color: e.cor }}>{e.label}</span>
+                    <Input type="datetime-local" value={form.datas[e.em]} max={agoraLocal()} onChange={(ev) => setForm({ ...form, datas: { ...form.datas, [e.em]: ev.target.value } })} />
+                  </label>
+                ))}
+              </div>
+            </FieldBox>
+          )}
+
           {/* Serial e observação só abrem quando se precisa deles. */}
           {comSerial ? (
             <Field label="Serial" hint="um por linha">
@@ -806,7 +980,7 @@ export default function Pedidos() {
           ) : null}
           {/* Comprovante depois dos itens: é quando já se sabe quanto pagar. */}
           {comComprovante && (editing === 'new' || (editing && editing.podeVerComprovante)) && (
-            <FieldBox label="Comprovante" hint={form.modalidade === 'manutencao' ? undefined : 'com ele o pedido já entra como pago'}>
+            <FieldBox label="Comprovante" hint={form.modalidade === 'pedido' ? 'com ele o pedido já entra como pago' : undefined}>
               <Comprovantes lista={form.comprovantes} onChange={(comprovantes) => setForm({ ...form, comprovantes })} />
             </FieldBox>
           )}
@@ -869,11 +1043,12 @@ function ultimosMeses(n = 12) {
 function baixarCsv(r: RelatorioPedidos) {
   const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
   const n = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const cab = ['Código', 'Pedido em', 'Modalidade', 'Local', 'Bloco', 'Apto', 'Quem pediu', 'Categoria', 'Item', 'Qtd.', 'Valor unit.', 'Valor', 'Serial', 'Pago em', 'Feito/resolvido em', 'Entregue em']
+  const cab = ['Código', 'Pedido em', 'Modalidade', 'Local', 'Bloco', 'Apto', 'Quem pediu', 'Portão', 'Do saldo', 'Categoria', 'Item', 'Qtd.', 'Valor unit.', 'Valor', 'Serial', 'Pago em', 'Feito/resolvido em', 'Resultado', 'Entregue em']
+  const resultado = (p: Pedido) => (p.resultado ? `${p.resultado === 'resolvido' ? 'Resolvido' : 'Não resolvido'}: ${p.resultadoObs}` : '')
   const linhas = r.lista.flatMap((p) => p.itens.map((i) => [
-    p.code, fmtDataHora(p.pedidoEm), modalidadeDe(p.modalidade).label, p.localName ?? '', p.bloco, p.apartamento, p.solicitante ?? '',
+    p.code, fmtDataHora(p.pedidoEm), modalidadeDe(p.modalidade).label, p.localName ?? '', p.bloco, p.apartamento, p.solicitante ?? '', p.portao, p.doSaldo ? 'sim' : '',
     i.categoriaLabel, i.itemLabel, i.quantidade, i.valor != null ? n(i.valor) : '', i.valor != null ? n(i.valor * i.quantidade) : '',
-    p.seriais.replace(/\n/g, ' '), p.pagoEm ? fmtDataHora(p.pagoEm) : '', p.feitoEm ? fmtDataHora(p.feitoEm) : '', p.entregueEm ? fmtDataHora(p.entregueEm) : '',
+    p.seriais.replace(/\n/g, ' '), p.pagoEm ? fmtDataHora(p.pagoEm) : '', p.feitoEm ? fmtDataHora(p.feitoEm) : '', resultado(p).replace(/\n/g, ' '), p.entregueEm ? fmtDataHora(p.entregueEm) : '',
   ].map(esc).join(';')))
   const blob = new Blob(['﻿' + [cab.join(';'), ...linhas].join('\r\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -952,6 +1127,13 @@ function RelatorioModal({ catalogo, onClose }: { catalogo: CategoriaCatalogo[]; 
         ) : (
           <>
             <ResumoPedidos r={dados.resumo} catalogo={catalogo} />
+
+            {!!dados.saldos?.length && (
+              <div>
+                <div className="mb-2 text-[12px] font-medium text-slate-300">Saldo consignado <span className="text-slate-500">— o que cada local ainda tem hoje</span></div>
+                <SaldosConsignados saldos={dados.saldos} catalogo={catalogo} />
+              </div>
+            )}
 
             <div>
               <div className="mb-2 text-[12px] font-medium text-slate-300">Pedidos do mês <span className="text-slate-500">({dados.lista.length})</span></div>
@@ -1062,6 +1244,17 @@ function EditorCatalogo({ inicial, onClose, onSave }: { inicial: CategoriaCatalo
                   <button key={v} type="button" role="radio" aria-checked={(c.tipo ?? 'item') === v} onClick={() => mudarCat(k, { tipo: v })} className={`rounded-md px-2 py-1 ${(c.tipo ?? 'item') === v ? 'bg-slate-700 text-slate-100' : 'text-slate-400'}`}>{l}</button>
                 ))}
               </div>
+              {(c.tipo ?? 'item') === 'item' && (
+                <button
+                  type="button"
+                  onClick={() => mudarCat(k, { pedePortao: !pedePortao(c) })}
+                  aria-pressed={pedePortao(c)}
+                  title="O pedido pergunta em qual portão vai ser configurado"
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-[11px] ${pedePortao(c) ? 'border-sky-700 bg-sky-500/10 text-sky-300' : 'border-slate-700 text-slate-500'}`}
+                >
+                  <DoorOpen size={12} /> Portão
+                </button>
+              )}
               <button type="button" onClick={() => setLista(lista.filter((_, j) => j !== k))} className="rounded p-1.5 text-slate-500 hover:bg-red-500/10 hover:text-red-400" title="Remover categoria"><Trash2 size={14} /></button>
             </div>
             <div className="mt-2 space-y-1.5 pl-3">

@@ -19,6 +19,8 @@ export async function setup() {
     cwd: path.join(raiz, '..'),
     env: { ...process.env, DATABASE_URL: `file:${arquivo}` },
     stdio: 'ignore',
+    // No Windows o `npx` é um .cmd: sem shell o spawn não o encontra.
+    shell: process.platform === 'win32',
   })
 }
 

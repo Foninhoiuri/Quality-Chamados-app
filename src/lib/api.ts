@@ -1,4 +1,4 @@
-import type { EventoNotificacao, Local, LogEntry, MonthlyReport, Notification, Novidades, Overview, Pedido, Registro, RelatorioPedidos, Role, SugestaoEndereco, Ticket, TecnicoRef, TicketComment, User } from './types'
+import type { EventoNotificacao, Local, LogEntry, MonthlyReport, Notification, Novidades, Overview, Pedido, Registro, RelatorioPedidos, Role, SaldoLocal, SugestaoEndereco, Ticket, TecnicoRef, TicketComment, User } from './types'
 import type { PermissionDef } from './permissions'
 
 // Base da API: `/api` na mesma origem (Vite/nginx fazem proxy para o backend).
@@ -162,6 +162,7 @@ export const api = {
   updatePedido: (id: string, body: Record<string, unknown>) => req<Pedido>('PATCH', `/pedidos/${id}`, body),
   etapaPedido: (id: string, etapa: 'pago' | 'feito' | 'entregue', valor: boolean, extra: Record<string, unknown> = {}) => req<Pedido>('POST', `/pedidos/${id}/etapa`, { etapa, valor, ...extra }),
   deletePedido: (id: string) => req('DELETE', `/pedidos/${id}`),
+  saldosPedidos: () => req<SaldoLocal[]>('GET', '/pedidos/saldos'),
   relatorioPedidos: (month: string, localId?: string) => req<RelatorioPedidos>('GET', `/pedidos/relatorio?month=${month}${localId ? `&localId=${localId}` : ''}`),
 
   // dashboard e relatório

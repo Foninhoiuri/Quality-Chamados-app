@@ -5,6 +5,56 @@ que precisa mudar para sair do papel.
 
 ---
 
+## Pedidos da operação — fila de trabalho (25/09/2026)
+
+Pedidos diretos de quem usa o app, separados por bloco. **Quando um item ficar pronto, apague
+a linha**; quando um bloco esvaziar, apague o bloco.
+
+### A. Chamados — telas e cartão
+
+- [ ] Botão "Abrir chamado" nas três telas: Abertos, Em andamento e Concluídos.
+- [ ] Cartão do chamado mostra o usuário com avatar em pílula (foto + nome), igual aos Registros.
+- [ ] Concluídos mostram as fotos do chamado, igual às telas de Abertos e Em andamento.
+- [ ] Adicionar mais fotos ao chamado em qualquer etapa (aberto, andamento, concluído).
+- [ ] **Remover troca de item / compra** do atendimento e tudo ligado a isso (tela, API,
+      relatório). A função não vai mais ser usada. Atenção: os itens já gravados em chamados
+      antigos não se apagam do banco — só deixam de aparecer/ser pedidos.
+
+### B. Chamados — serviço já realizado
+
+- [ ] O serviço já realizado usa o mesmo menu de ida e volta (ponto) do atendimento normal.
+- [ ] Duração informada em relógio (`2:50`), não em decimal (`2.5`) — o seletor de relógio
+      grava em horas por baixo.
+
+### C. Locais
+
+- [ ] Ao criar/editar local no menu de Locais, mostrar o mapa na tela ao lado do formulário
+      (só desktop; no celular não precisa).
+
+### E. Relatórios
+
+- [ ] Gerar por **ano** e **total** (além do período atual).
+- [ ] Tempo médio dos chamados.
+- [ ] Chamados por tipo de local: mostrar o total de chamados de cada tipo.
+- [ ] Pedidos de controle por local.
+- [ ] Cada aba ganha uma descrição do que mostra (hoje há aba que só diz "por dia").
+
+### F. Dashboard e navegação
+
+- [ ] Sidebar no desktop agrupada por seção: Dashboard | Chamados | Registros e Controles & Tags.
+
+### G. Registros
+
+- [ ] Visita técnica como registro: onde foi (local cadastrado ou um local temporário, só
+      texto) e o horário — de que horas a que horas, **ou** só quanto tempo durou.
+
+### H. Usuários
+
+- [ ] Senha temporária visível enquanto estiver em uso (até a pessoa trocar). Verificar se
+      hoje ela some antes disso — a regra em `CLAUDE.md` já diz que deveria ficar.
+
+---
+
 ## O que falta no app — lista de ideias
 
 Ordenado pelo que mais muda o dia da operação. Cada item diz o problema primeiro; sem
@@ -12,6 +62,8 @@ problema claro, a ideia não vale o código.
 
 > **Já construídos** (18/09/2026): uso sem sinal (fila de envio), backup do banco e das
 > fotos, e os testes das regras que não podem quebrar. A numeração abaixo pulou esses três.
+> **Descartadas** (25/09/2026): #4 Custo e faturamento e #5 Catálogo de peças — dependiam da
+> troca de item/compra no atendimento, que sai do sistema.
 
 ### 1. Comprovação do atendimento (assinatura e anexos que não são foto)
 
@@ -48,28 +100,6 @@ data de abertura, o que foi feito, fotos finais — e um aviso automático quand
 
 **Muda:** `Ticket.tokenPublico`, uma rota pública de leitura com rate limit e uma página
 sem login. Aviso por e-mail exige SMTP configurado; por WhatsApp, um provedor.
-
-### 4. Custo e faturamento por local
-
-**Problema:** o app já sabe as horas e os itens, mas não o dinheiro. Fechar o mês com o
-cliente ainda é planilha à parte.
-
-**Proposta:** valor-hora por técnico (ou por local), somado às peças, fechando um valor por
-chamado e um total por local no mês, com o CSV e o PDF já prontos para anexar à cobrança.
-
-**Muda:** `valorHora` em User/Local, campo de desconto/acréscimo no chamado e uma seção de
-custos no relatório mensal — atrás de uma permissão própria (`ver_custos`).
-
-### 5. Catálogo de peças
-
-**Problema:** os itens são texto livre. "Fonte 12V", "fonte 12v 5a" e "FONTE" viram três
-coisas diferentes, e o relatório de material não fecha.
-
-**Proposta:** cadastro simples de peças (nome, unidade, valor de referência) com
-autocompletar no atendimento, aceitando item fora do catálogo quando for exceção.
-
-**Muda:** tabela `Peca`, `itens` do chamado passa a guardar `pecaId` quando houver, e o
-relatório soma por peça — abrindo caminho para "o que mais troca em cada local".
 
 ### 6. Chamado parado
 
@@ -163,13 +193,12 @@ do mais simples ao mais esperto — dá para começar pelo 1 e somar os outros d
   30 dias (CH-0101, CH-0117)"* antes de salvar.
 - **No card e no detalhe do chamado:** selo "Reincidente · 3ª vez" com link para os anteriores.
 - **Para o técnico:** a solução e as ações tomadas dos chamados anteriores aparecem no
-  atendimento — é o que evita repetir a mesma troca que não resolveu.
+  atendimento — é o que evita repetir o mesmo serviço que não resolveu.
 - **No relatório mensal**, nova seção *Reincidência*:
   - taxa de reincidência do mês (`reincidentes ÷ concluídos`);
   - top locais e top categorias com mais retorno;
   - por técnico: quantos chamados que ele concluiu voltaram na janela (indicador de qualidade,
     a ser usado com cuidado — o problema pode ser do equipamento, não do serviço);
-  - itens trocados que não resolveram (mesmo item trocado 2× no mesmo local).
 - **No dashboard:** cartão "Reincidências no mês" com a lista dos casos abertos.
 
 ### O que muda no sistema

@@ -4,9 +4,9 @@ export const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency',
 
 /** Catálogo padrão — o mesmo do servidor, para quando o setting ainda não existe. */
 export const CATALOGO_PADRAO: CategoriaCatalogo[] = [
-  { key: 'controle', label: 'Controle', color: '#38bdf8', itens: [{ key: 'nice-new-evo', label: 'Nice New Evo', valor: null }] },
+  { key: 'controle', label: 'Controle', color: '#38bdf8', pedePortao: true, itens: [{ key: 'nice-new-evo', label: 'Nice New Evo', valor: null }] },
   { key: 'tag', label: 'Tag', color: '#34d399', itens: [{ key: 'nice', label: 'Nice', valor: null }] },
-  { key: 'tag-veicular', label: 'Tag veicular', color: '#fbbf24', itens: [{ key: 'controlid', label: 'ControlID', valor: null }] },
+  { key: 'tag-veicular', label: 'Tag veicular', color: '#fbbf24', pedePortao: true, itens: [{ key: 'controlid', label: 'ControlID', valor: null }] },
   { key: 'manutencao', label: 'Manutenção', color: '#f472b6', tipo: 'manutencao', itens: [{ key: 'troca-de-pilha', label: 'Troca de pilha', valor: null }] },
 ]
 export function parseCatalogo(settings: Record<string, string>): CategoriaCatalogo[] {
@@ -17,6 +17,8 @@ export function parseCatalogo(settings: Record<string, string>): CategoriaCatalo
   return CATALOGO_PADRAO
 }
 export const corDa = (cat: CategoriaCatalogo[], key: string) => cat.find((c) => c.key === key)?.color ?? '#a1a1aa'
+/** Vai configurado num portão? Catálogo antigo, sem a marca: controle e tag veicular. */
+export const pedePortao = (c?: CategoriaCatalogo) => !!c && c.tipo !== 'manutencao' && (c.pedePortao ?? ['controle', 'tag-veicular'].includes(c.key))
 
 /**
  * O resumo de Controles & Tags: os números no topo, o que mais se pediu (por item) e
@@ -28,11 +30,12 @@ export function ResumoPedidos({ r, catalogo }: { r: Resumo; catalogo: CategoriaC
   const comValores = r.valor !== null
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-2">
         {[
           { label: 'Pedidos', valor: String(r.pedidos) },
           { label: 'Itens', valor: String(r.itens) },
           { label: 'Entregues', valor: String(r.entregues) },
+          ...(r.consignado ? [{ label: 'Consignado em lote', valor: `${r.consignado} un.`, tom: '#a78bfa' }] : []),
           ...(comValores ? [{ label: 'Valor total', valor: brl(r.valor ?? 0), tom: '#34d399' }] : []),
         ].map((n: { label: string; valor: string; tom?: string }) => (
           <div key={n.label} className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">

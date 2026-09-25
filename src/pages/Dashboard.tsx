@@ -9,6 +9,8 @@ import { coresDoStatus, esperaDesde, parseStatuses } from '@/lib/tickets'
 import { cn, fmtMinutos, tempoAtras } from '@/lib/utils'
 import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { CORES_ANDAMENTO, SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
+import { parseCatalogo } from '@/components/pedidos/ResumoPedidos'
+import { ResumoPedidosDashboard } from '@/components/pedidos/ResumoDashboard'
 import type { Overview } from '@/lib/types'
 
 /**
@@ -141,6 +143,7 @@ export default function Dashboard() {
   const tickets = useStore((s) => s.tickets)
   const settings = useStore((s) => s.settings)
   const tiposRegistro = useMemo(() => parseTiposRegistro(settings), [settings])
+  const catalogo = useMemo(() => parseCatalogo(settings), [settings])
   const canTickets = useCan('ver_chamados')
   const canCreate = useCan('criar_chamados')
   const canAccept = useCan('aceitar_chamados')
@@ -289,6 +292,8 @@ export default function Dashboard() {
           <Rosca fatias={ov.porStatus} />
         </Card>
       </div>
+
+      {ov.pedidos && <ResumoPedidosDashboard resumo={ov.pedidos.resumo} saldos={ov.pedidos.saldos} catalogo={catalogo} dias={ov.janelaDias} />}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-4">
