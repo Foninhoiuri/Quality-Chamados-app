@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, Loader2, X, MapPin } from 'lucide-react'
 import { Button, Select } from './ui'
 import { FormularioLocal, LOCAL_VAZIO, type LocalForm } from './FormularioLocal'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
+import { parseTiposLocal, siglaDoTipo, tipoLocalDe } from '@/lib/locais'
 
 /**
  * Escolha de local com a saída de emergência que o atendimento precisa: às vezes o
@@ -18,6 +19,8 @@ export function LocalSelect({ value, onChange, allowEmpty = true, className }: {
   className?: string
 }) {
   const locais = useStore((s) => s.locais)
+  const settings = useStore((s) => s.settings)
+  const tipos = useMemo(() => parseTiposLocal(settings), [settings])
   const addLocal = useStore((s) => s.addLocal)
   const showToast = useStore((s) => s.showToast)
   const me = useCurrentUser()
@@ -79,9 +82,12 @@ export function LocalSelect({ value, onChange, allowEmpty = true, className }: {
     <div className={`flex items-center gap-1.5 ${className ?? ''}`}>
       <Select className="w-full min-w-0" value={value} onValueChange={onChange} aria-label="Local">
         {allowEmpty && <option value="">— nenhum —</option>}
-        {/* "CEN - Ed. Central": a abreviação é como o local é chamado no rádio e no
-            relatório, e é por ela que se acha na lista comprida. */}
-        {locais.map((l) => (<option key={l.id} value={l.id}>{l.code ? `${l.code} - ${l.name}` : l.name}</option>))}
+        {/* "COND - Ed. Central": a sigla do TIPO diz que lugar é antes de ler o nome. O
+            código do local (LC-091) não dizia nada a quem escolhe. Sem tipo, só o nome. */}
+        {locais.map((l) => {
+          const t = tipoLocalDe(tipos, l.tipo)
+          return <option key={l.id} value={l.id}>{t ? `${siglaDoTipo(t)} - ${l.name}` : l.name}</option>
+        })}
       </Select>
       {podeCriar && (
         <button

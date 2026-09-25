@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Plus, Pencil, Trash2, Check, X, Copy } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, Copy, KeyRound } from 'lucide-react'
 import { Button, Card, Field, Input, Modal, PageHeader, RoleBadge, Select } from '@/components/ui'
 import { PasswordInput } from '@/components/secret'
 import { useStore, useCurrentUser, useCan } from '@/lib/store'
+import { api } from '@/lib/api'
 import { AvatarPessoa } from '@/components/Pessoa'
 import type { Local, User } from '@/lib/types'
 
@@ -66,6 +67,7 @@ export default function Usuarios() {
   const canCreateUsers = useCan('criar_usuarios')
   const canEditUsers = useCan('editar_usuarios')
   const canManageRoles = useCan('gerenciar_papeis')
+  const canVerSenha = useCan('ver_senha_temporaria')
   // Qual perfil está aberto na versão de celular da matriz.
   const [perfilAberto, setPerfilAberto] = useState('role-tecnico')
 
@@ -77,7 +79,7 @@ export default function Usuarios() {
   const [newRole, setNewRole] = useState(false)
   const [roleForm, setRoleForm] = useState({ name: '', color: '#38bdf8' })
   const [removingRole, setRemovingRole] = useState<{ id: string; name: string } | null>(null)
-  const [tempPass, setTempPass] = useState<{ name: string; password: string } | null>(null)
+  const [tempPass, setTempPass] = useState<{ name: string; password: string; consulta?: boolean } | null>(null)
 
   const roleOf = (id: string) => roles.find((r) => r.id === id)
   const scopeLabel = (scope: string) => {
@@ -138,11 +140,27 @@ export default function Usuarios() {
     setForm({ ...form, grants, denies })
   }
 
+  /** Quem ainda não trocou a senha temporária: ela pode ser vista de novo, para repassar. */
+  async function verSenha(u: User) {
+    try {
+      const r = await api.senhaTemporaria(u.id)
+      setTempPass({ name: u.name, password: r.senha, consulta: true })
+    } catch (e: any) {
+      showToast(e?.message ?? 'Não foi possível ver a senha')
+    }
+  }
+
   const Acoes = ({ u }: { u: User }) => {
     const isMe = u.id === me?.id
-    if (!canEditUsers) return null
+    const senha = canVerSenha && u.temSenhaTemporaria && (
+      <button onClick={() => verSenha(u)} className="rounded-md p-1.5 text-amber-400/80 hover:bg-amber-500/10 hover:text-amber-300" title="Ver a senha temporária (ainda não trocou)" aria-label={`Ver a senha temporária de ${u.name}`}>
+        <KeyRound size={14} />
+      </button>
+    )
+    if (!canEditUsers) return senha || null
     return (
       <>
+        {senha}
         <button onClick={() => openEdit(u)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200" title="Editar"><Pencil size={14} /></button>
         <button onClick={() => setDeleting(u)} disabled={isMe} className="rounded-md p-1.5 text-slate-500 enabled:hover:bg-red-500/10 enabled:hover:text-red-400 disabled:opacity-30" title={isMe ? 'Você não pode excluir a si mesmo' : 'Excluir'}><Trash2 size={14} /></button>
       </>
@@ -177,6 +195,7 @@ export default function Usuarios() {
                     {overrides > 0 && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">+{overrides}</span>}
                     <span className={u.status === 'ativo' ? 'text-[11px] text-emerald-400' : 'text-[11px] text-slate-500'}>{u.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
                     <span className="text-[11px] text-slate-500">· {scopeLabel(u.scope)}</span>
+                    {u.mustChangePassword && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">senha temporária</span>}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1"><Acoes u={u} /></div>
@@ -225,7 +244,8 @@ export default function Usuarios() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-300">{scopeLabel(u.scope)}</td>
-                  <td className="px-4 py-2.5"><span className={u.status === 'ativo' ? 'text-emerald-400' : 'text-slate-500'}>{u.status === 'ativo' ? 'Ativo' : 'Inativo'}</span></td>
+                  <td className="px-4 py-2.5"><span className={u.status === 'ativo' ? 'text-emerald-400' : 'text-slate-500'}>{u.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
+                    {u.mustChangePassword && <span className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">senha temporária</span>}</td>
                   <td className="px-4 py-2.5 text-slate-400">{fmtAcesso(u.lastAccess)}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center justify-end gap-1">
@@ -449,10 +469,13 @@ export default function Usuarios() {
       </Modal>
 
       {/* Senha temporária */}
-      <Modal open={tempPass !== null} onClose={() => setTempPass(null)} title="Usuário criado" footer={<Button onClick={() => setTempPass(null)}>Fechar</Button>}>
+      <Modal open={tempPass !== null} onClose={() => setTempPass(null)} title={tempPass?.consulta ? 'Senha temporária' : 'Usuário criado'} footer={<Button onClick={() => setTempPass(null)}>Fechar</Button>}>
         <div className="space-y-3 text-sm">
           <p className="text-slate-300">
-            Repasse esta senha temporária para <span className="font-medium text-slate-100">{tempPass?.name}</span>. Ela só aparece agora; no primeiro acesso a pessoa escolhe a própria.
+            Repasse esta senha temporária para <span className="font-medium text-slate-100">{tempPass?.name}</span>.{' '}
+            {tempPass?.consulta
+              ? 'Ela vale até a pessoa criar a própria senha no primeiro acesso. Esta consulta fica registrada na auditoria.'
+              : 'No primeiro acesso a pessoa escolhe a própria — até lá, quem tem permissão pode vê-la de novo em Usuários.'}
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 select-all rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-base tracking-wider text-slate-100">{tempPass?.password}</code>

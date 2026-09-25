@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard'
 import Chamados from './pages/Chamados'
 import Relatorios from './pages/Relatorios'
 import Registros from './pages/Registros'
+import Pedidos from './pages/Pedidos'
 import Locais from './pages/Locais'
 import Usuarios from './pages/Usuarios'
 import Auditoria from './pages/Auditoria'
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="/chamados" element={<ParaOChamado />} />
         <Route path="/arquivados" element={<Navigate to="/concluidos" replace />} />
         <Route path="/registros" element={<Guarded perm="ver_registros"><Registros /></Guarded>} />
+        <Route path="/pedidos" element={<Guarded perm="ver_pedidos"><Pedidos /></Guarded>} />
         <Route path="/relatorios" element={<Guarded perm="ver_relatorios"><Relatorios /></Guarded>} />
         <Route path="/locais" element={<Guarded perm="ver_locais"><Locais /></Guarded>} />
         <Route path="/usuarios" element={<Guarded perm="ver_usuarios"><Usuarios /></Guarded>} />

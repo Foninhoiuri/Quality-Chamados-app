@@ -188,6 +188,8 @@ export interface User {
   phone?: string | null
   avatar?: string | null
   mustChangePassword?: boolean
+  /** Ainda usa a senha temporária guardada — quem tem `ver_senha_temporaria` pode vê-la. */
+  temSenhaTemporaria?: boolean
   password?: string // só em formulário; o servidor nunca devolve senha
   /** Eventos de notificação desligados por este usuário. Ausente = recebe. */
   notifPrefs?: Record<string, boolean>
@@ -209,8 +211,8 @@ export interface EventoNotificacao {
   label: string
 }
 
-export type LogAction = 'criar' | 'editar' | 'excluir' | 'login'
-export type LogEntity = 'local' | 'usuario' | 'sessao' | 'chamado' | 'registro' | 'config'
+export type LogAction = 'criar' | 'editar' | 'excluir' | 'login' | 'ver'
+export type LogEntity = 'local' | 'usuario' | 'sessao' | 'chamado' | 'registro' | 'config' | 'pedido'
 
 export interface LogEntry {
   id: string
@@ -280,6 +282,8 @@ export interface MonthlyReport {
   porLocal: { nome: string; abertos: number; emAberto: number; concluidos: number }[]
   /** Por etiqueta do local (`local_tipos`); `tipo` vazio = sem tipo. */
   porTipoLocal: { tipo: string; abertos: number; concluidos: number; locais: number }[]
+  /** Controles & Tags do mês; `null` para quem não vê pedidos. */
+  pedidos?: ResumoPedidos | null
   porDia: { dia: string; abertos: number; concluidos: number }[]
   lista: {
     id: string
@@ -288,6 +292,8 @@ export interface MonthlyReport {
     minutosNoMes: number
     itens: number
     local: string
+    /** Etiqueta do local (`local_tipos`); vazio = sem tipo. */
+    tipoLocal?: string
     status: string
     concluido: boolean
     abertoPor: string
@@ -295,4 +301,60 @@ export interface MonthlyReport {
     criadoEm: string
     concluidoEm: string | null
   }[]
+}
+
+/** Pedido de controle/tag: `pedido` (unidade), `manutencao` (aparelho com defeito), `lote` (o condomínio em quantidade). */
+export type ModalidadePedido = 'pedido' | 'manutencao' | 'lote'
+/** Catálogo: categoria (Controle) → itens (Nice New Evo), com valor opcional. */
+export interface ItemCatalogo { key: string; label: string; valor: number | null }
+/** `tipo`: 'item' é o que se vende (controle, tag); 'manutencao' é serviço (troca de pilha). */
+export interface CategoriaCatalogo { key: string; label: string; color: string; tipo?: 'item' | 'manutencao'; itens: ItemCatalogo[] }
+/** Item do pedido — nomes e valor copiados do catálogo no dia do pedido. */
+export interface ItemPedido { categoria: string; categoriaLabel: string; item: string; itemLabel: string; quantidade: number; valor: number | null }
+export interface Pedido {
+  id: string
+  code: string
+  modalidade: ModalidadePedido
+  localId: string | null
+  localName?: string
+  apartamento: string
+  bloco: string
+  solicitante: string | null
+  pedidoEm: string
+  itens: ItemPedido[]
+  seriais: string
+  observacao: string
+  /** Vazio para quem não pode ver comprovante — `qtdComprovantes` diz se existe. */
+  comprovantes: string[]
+  qtdComprovantes: number
+  podeVerComprovante: boolean
+  fotos: string[]
+  pagoEm: string | null
+  pagoPor: string | null
+  feitoEm: string | null
+  feitoPor: string | null
+  entregueEm: string | null
+  entreguePor: string | null
+  autorId: string | null
+  autorName: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** Resumo de Controles & Tags — no relatório mensal e no relatório próprio. */
+export interface ResumoPedidos {
+  pedidos: number
+  itens: number
+  /** `null` = sem permissão para ver valores. */
+  valor: number | null
+  entregues: number
+  porModalidade: Record<string, number>
+  porItem: { categoria: string; categoriaLabel: string; item: string; itemLabel: string; quantidade: number; valor: number | null }[]
+  porLocal: { nome: string; pedidos: number; itens: number; valor: number | null }[]
+}
+export interface RelatorioPedidos {
+  periodo: { inicio: string; fim: string; mes: string }
+  comValores: boolean
+  resumo: ResumoPedidos
+  lista: Pedido[]
 }

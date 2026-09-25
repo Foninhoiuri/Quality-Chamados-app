@@ -109,6 +109,18 @@ export function baixarRelatorioPdf(d: MonthlyReport, nomeMes: string, tiposRegis
       d.porTipoLocal.map((x) => [nomeTipo(x.tipo), x.abertos, x.concluidos, x.locais]))
   }
 
+  if (d.pedidos && d.pedidos.pedidos > 0) {
+    const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    const cv = d.pedidos.valor !== null
+    secao(`Controles & Tags — ${d.pedidos.pedidos} pedido(s), ${d.pedidos.itens} item(ns)${cv ? `, ${brl(d.pedidos.valor ?? 0)}` : ''}`)
+    tabela(cv ? ['Categoria', 'Item', 'Qtd.', 'Valor'] : ['Categoria', 'Item', 'Qtd.'],
+      d.pedidos.porItem.map((i) => [i.categoriaLabel, i.itemLabel, i.quantidade, ...(cv ? [i.valor ? brl(i.valor) : '—'] : [])]))
+    tabela(cv ? ['Local', 'Pedidos', 'Itens', 'Valor'] : ['Local', 'Pedidos', 'Itens'], [
+      ...d.pedidos.porLocal.map((l) => [l.nome, l.pedidos, l.itens, ...(cv ? [l.valor ? brl(l.valor) : '—'] : [])]),
+      ['Total', d.pedidos.pedidos, d.pedidos.itens, ...(cv ? [brl(d.pedidos.valor ?? 0)] : [])],
+    ])
+  }
+
   secao('Itens trocados e comprados')
   tabela(['Item', 'Tipo', 'Qtd.', 'Valor'],
     d.itens.map((i) => [

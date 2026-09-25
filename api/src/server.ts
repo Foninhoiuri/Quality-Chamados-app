@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client'
 import { prisma, enforceAuditImmutability } from './db'
 import { verifyToken, loadAuthUser, sign, type AuthUser, type TokenUser } from './auth'
 import { ensureBaseData, needsSetup } from './bootstrap'
-import { deleteUploads, ensureUploadDir, readUpload, saveDataUrl, UPLOAD_PATH_RE } from './uploads'
+import { COMPROVANTE_PATH_RE, deleteUploads, ensureUploadDir, readUpload, saveDataUrl, UPLOAD_PATH_RE } from './uploads'
 import { announce, EVENTOS, initVapid, parsePrefs, usersWithPerm, vapidPublicKey } from './notify'
 
 // Segurança: em produção, segredos default são fatais (evita subir com chave conhecida).
@@ -30,9 +30,11 @@ await app.register(rateLimit, {
   errorResponseBuilder: () => ({ error: 'muitas requisições — aguarde um instante' }),
 })
 
-app.addHook('onSend', async (_req, reply, payload) => {
+app.addHook('onSend', async (req, reply, payload) => {
   reply.header('X-Content-Type-Options', 'nosniff')
-  reply.header('X-Frame-Options', 'DENY')
+  // O comprovante em PDF abre numa prévia DENTRO do painel (iframe da mesma origem), em
+  // vez de baixar. Só os arquivos enviados ganham essa folga; o resto continua sem moldura.
+  reply.header('X-Frame-Options', req.url.startsWith('/uploads/') ? 'SAMEORIGIN' : 'DENY')
   reply.header('Referrer-Policy', 'no-referrer')
   reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
   return payload
@@ -430,8 +432,8 @@ const ticketUrl = (id: string) => `/chamados?t=${id}`
 async function shapeUser(id: string) {
   const u = await prisma.user.findUnique({ where: { id }, include: { grants: { select: { id: true } }, denies: { select: { id: true } } } })
   if (!u) return null
-  const { passwordHash, grants, denies, notifPrefs, ...safe } = u
-  return { ...safe, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id), notifPrefs: parsePrefs(notifPrefs) }
+  const { passwordHash, senhaTemp, grants, denies, notifPrefs, ...safe } = u
+  return { ...safe, temSenhaTemporaria: !!senhaTemp && u.mustChangePassword, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id), notifPrefs: parsePrefs(notifPrefs) }
 }
 const shapeRole = (r: any) => ({ id: r.id, name: r.name, color: r.color, system: r.system, permissions: (r.permissions ?? []).map((p: any) => p.id) })
 const shapePermission = (p: any) => ({ id: p.id, label: p.label, module: p.module, system: p.system })
@@ -449,6 +451,29 @@ function senhaTemporaria(): string {
   return `${letras.slice(0, 4).join('')}-${letras.slice(4, 8).join('')}`
 }
 const USER_STATUS = new Set(['ativo', 'inativo'])
+
+/**
+ * A senha temporária guardada para ser repassada de novo ("perdi o papel com a senha").
+ * Nunca em texto puro: AES-GCM com chave derivada do JWT_SECRET — o banco sozinho não a
+ * entrega. Só existe enquanto a pessoa não trocou; na troca, apaga.
+ */
+const CHAVE_SENHA_TEMP = crypto.createHash('sha256').update(`senha-temporaria:${process.env.JWT_SECRET || 'dev-secret-trocar-em-producao'}`).digest()
+function cifrarSenhaTemp(senha: string): string {
+  const iv = crypto.randomBytes(12)
+  const c = crypto.createCipheriv('aes-256-gcm', CHAVE_SENHA_TEMP, iv)
+  const dado = Buffer.concat([c.update(senha, 'utf8'), c.final()])
+  return [iv, c.getAuthTag(), dado].map((b) => b.toString('base64')).join('.')
+}
+function decifrarSenhaTemp(guardada: string): string | null {
+  try {
+    const [iv, tag, dado] = guardada.split('.').map((x) => Buffer.from(x, 'base64'))
+    const d = crypto.createDecipheriv('aes-256-gcm', CHAVE_SENHA_TEMP, iv)
+    d.setAuthTag(tag)
+    return Buffer.concat([d.update(dado), d.final()]).toString('utf8')
+  } catch {
+    return null // JWT_SECRET trocado: a senha guardada não abre mais — redefina.
+  }
+}
 
 // ----------------------------- setup inicial -----------------------------
 
@@ -535,7 +560,7 @@ app.post('/auth/change-password', async (req: any, reply) => {
   if (!full.mustChangePassword && !bcrypt.compareSync(String(b.currentPassword ?? ''), full.passwordHash)) {
     return reply.code(400).send({ error: 'senha atual incorreta' })
   }
-  await prisma.user.update({ where: { id: full.id }, data: { passwordHash: bcrypt.hashSync(newPass, 10), mustChangePassword: false } })
+  await prisma.user.update({ where: { id: full.id }, data: { passwordHash: bcrypt.hashSync(newPass, 10), mustChangePassword: false, senhaTemp: null } })
   await audit(u, 'editar', 'usuario', full.name, undefined, 'Senha alterada pelo próprio usuário')
   return shapeUser(full.id)
 })
@@ -880,7 +905,7 @@ app.get('/users', async (req: any, reply) => {
   if (!u.perms.has('ver_usuarios')) return reply.code(403).send({ error: 'sem permissão' })
   const users = await prisma.user.findMany({ orderBy: { name: 'asc' }, include: { grants: { select: { id: true } }, denies: { select: { id: true } } } })
   // `notifPrefs` é preferência de cada um: não interessa à tela de usuários e não sai daqui.
-  return users.map(({ passwordHash, notifPrefs, grants, denies, ...x }) => ({ ...x, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id) }))
+  return users.map(({ passwordHash, senhaTemp, notifPrefs, grants, denies, ...x }) => ({ ...x, temSenhaTemporaria: !!senhaTemp && x.mustChangePassword, grants: grants.map((g) => g.id), denies: denies.map((d) => d.id) }))
 })
 
 app.post('/users', async (req: any, reply) => {
@@ -904,6 +929,8 @@ app.post('/users', async (req: any, reply) => {
       name: String(b.name).trim(), email, roleId: b.roleId ?? 'role-operador', scope: b.scope || 'global',
       status: b.status ?? 'ativo', passwordHash: bcrypt.hashSync(escolhida ?? (tempPassword as string), 10),
       mustChangePassword: trocarNoPrimeiroAcesso, phone: b.phone ?? null,
+      // Temporária = vai ser trocada no primeiro acesso. Senha que fica valendo não se guarda.
+      senhaTemp: trocarNoPrimeiroAcesso ? cifrarSenhaTemp(escolhida ?? (tempPassword as string)) : null,
       grants: { connect: (b.grants ?? []).map((id: string) => ({ id })) },
       denies: { connect: (b.denies ?? []).map((id: string) => ({ id })) },
     },
@@ -938,6 +965,7 @@ app.patch('/users/:id', async (req: any, reply) => {
     // Padrão: a pessoa cria a própria senha no primeiro acesso (quem redefine não deve
     // ficar sabendo a senha final). Dá para desligar caso a caso.
     data.mustChangePassword = b.mustChangePassword !== false
+    data.senhaTemp = data.mustChangePassword ? cifrarSenhaTemp(String(b.password)) : null
   }
   if (Array.isArray(b.grants)) data.grants = { set: b.grants.map((id: string) => ({ id })) }
   if (Array.isArray(b.denies)) data.denies = { set: b.denies.map((id: string) => ({ id })) }
@@ -953,6 +981,21 @@ app.patch('/users/:id', async (req: any, reply) => {
   if (Array.isArray(b.grants) || Array.isArray(b.denies)) changes.push('Exceções de permissão alteradas')
   await audit(u, 'editar', 'usuario', updated.name, undefined, changes.join('; ') || undefined)
   return shapeUser(updated.id)
+})
+
+/** A senha temporária de quem ainda não trocou. Cada consulta fica na auditoria. */
+app.get('/users/:id/senha-temporaria', async (req: any, reply) => {
+  const u = await guard(req, reply, 'ver_senha_temporaria')
+  if (!u) return
+  const alvo = await prisma.user.findUnique({ where: { id: req.params.id }, select: { name: true, senhaTemp: true, mustChangePassword: true } })
+  if (!alvo) return reply.code(404).send()
+  if (!alvo.senhaTemp || !alvo.mustChangePassword) {
+    return reply.code(404).send({ error: 'esta pessoa já criou a própria senha (ou a temporária é de antes deste recurso) — redefina para gerar outra' })
+  }
+  const senha = decifrarSenhaTemp(alvo.senhaTemp)
+  if (!senha) return reply.code(410).send({ error: 'não foi possível abrir a senha guardada — redefina para gerar outra' })
+  await audit(u, 'ver', 'usuario', alvo.name, undefined, 'Senha temporária consultada')
+  return { senha }
 })
 
 app.delete('/users/:id', async (req: any, reply) => {
@@ -2054,6 +2097,16 @@ app.get('/reports/monthly', async (req: any, reply) => {
     porResponsavel,
     porLocal,
     porTipoLocal,
+    // Controles & Tags do mês — só para quem enxerga os pedidos.
+    pedidos: u.perms.has('ver_pedidos') ? await (async () => {
+      const r: any = resumoPedidos(await pedidosDoMes(u, inicio, fim, localId || undefined), nomesLocais)
+      if (!podeVerValores(u)) {
+        r.valor = null
+        r.porItem = r.porItem.map((x: any) => ({ ...x, valor: null }))
+        r.porLocal = r.porLocal.map((x: any) => ({ ...x, valor: null }))
+      }
+      return r
+    })() : null,
     porDia,
     lista: lista.map((t) => ({
       id: t.id,
@@ -2062,6 +2115,7 @@ app.get('/reports/monthly', async (req: any, reply) => {
       minutosNoMes: minutosNoMes.get(t.id) ?? 0,
       itens: (parseJsonArray(t.itens) as Item[]).length,
       local: t.localId ? nomesLocais[t.localId] ?? '—' : '',
+      tipoLocal: tipoDe(t),
       status: stLabel[t.status] ?? t.status,
       concluido: done.has(t.status),
       abertoPor: t.createdByName,
@@ -2074,14 +2128,365 @@ app.get('/reports/monthly', async (req: any, reply) => {
 
 // ----------------------------- configurações -----------------------------
 
+// ----------------------------- Controles & Tags (pedidos) -----------------------------
+
+/**
+ * CATÁLOGO: categorias (controle, tag, tag veicular…) e, dentro de cada uma, os itens
+ * que de fato se pedem (Nice New Evo, ControlID…), com valor opcional. Setting
+ * `pedido_catalogo`, editável na própria tela.
+ */
+interface ItemCatalogo { key: string; label: string; valor: number | null }
+/** `tipo`: 'item' é o que se vende (controle, tag); 'manutencao' é serviço (troca de pilha). */
+interface CategoriaCatalogo { key: string; label: string; color: string; tipo?: 'item' | 'manutencao'; itens: ItemCatalogo[] }
+const CATALOGO_PADRAO: CategoriaCatalogo[] = [
+  { key: 'controle', label: 'Controle', color: '#38bdf8', tipo: 'item', itens: [{ key: 'nice-new-evo', label: 'Nice New Evo', valor: null }] },
+  { key: 'tag', label: 'Tag', color: '#34d399', tipo: 'item', itens: [{ key: 'nice', label: 'Nice', valor: null }] },
+  { key: 'tag-veicular', label: 'Tag veicular', color: '#fbbf24', tipo: 'item', itens: [{ key: 'controlid', label: 'ControlID', valor: null }] },
+  { key: 'manutencao', label: 'Manutenção', color: '#f472b6', tipo: 'manutencao', itens: [{ key: 'troca-de-pilha', label: 'Troca de pilha', valor: null }] },
+]
+async function catalogoPedidos(): Promise<CategoriaCatalogo[]> {
+  const raw = await getSetting('pedido_catalogo', '')
+  if (raw) { try { const a = JSON.parse(raw); if (Array.isArray(a) && a.length) return a } catch { /* usa o padrão */ } }
+  return CATALOGO_PADRAO
+}
+const MODALIDADES_PEDIDO = new Set(['pedido', 'manutencao', 'lote'])
+/**
+ * As etapas andam em ordem e cada modalidade tem o seu caminho. Desmarcar, só a última.
+ * - pedido: pago → feito → entregue
+ * - lote: pago → entregue (o condomínio mesmo configura; só compra com a gente)
+ * - manutenção: resolvido → entregue (é revisão e decisão; "resolvido" usa o campo de feito)
+ */
+const ETAPAS_PEDIDO = ['pago', 'feito', 'entregue'] as const
+type EtapaPedido = (typeof ETAPAS_PEDIDO)[number]
+const FLUXO_PEDIDO: Record<string, EtapaPedido[]> = { pedido: ['pago', 'feito', 'entregue'], lote: ['pago', 'entregue'], manutencao: ['feito', 'entregue'] }
+const fluxoDe = (modalidade: string) => FLUXO_PEDIDO[modalidade] ?? FLUXO_PEDIDO.pedido
+const CAMPOS_ETAPA: Record<EtapaPedido, [string, string]> = { pago: ['pagoEm', 'pagoPor'], feito: ['feitoEm', 'feitoPor'], entregue: ['entregueEm', 'entreguePor'] }
+const nextPedidoCode = async () => nextCode('PD', 4, await prisma.pedido.findMany({ select: { code: true } }))
+
+function canSeePedido(u: AuthUser, p: any, ids: string[] | null) {
+  if (!ids) return true
+  return p.autorId === u.sub || (!!p.localId && ids.includes(p.localId))
+}
+const ehAutor = (u: AuthUser, p: any) => !!p.autorId && p.autorId === u.sub
+const podeEditarPedido = (u: AuthUser, p: any) => u.perms.has('editar_pedidos') || (ehAutor(u, p) && u.perms.has('criar_pedidos'))
+const podeVerComprovante = (u: AuthUser, p: any) => ehAutor(u, p) || u.perms.has('ver_comprovantes')
+const podeVerValores = (u: AuthUser) => u.perms.has('ver_valores_pedido') || u.perms.has('gerenciar_catalogo_pedidos')
+/** Sem `ver_valores_pedido` o valor não sai do servidor — nem no pedido, nem no catálogo. */
+const semValor = (itens: any[]) => itens.map((i) => ({ ...i, valor: null }))
+
+/**
+ * O comprovante é dado de pagamento: quem não lançou o pedido e não tem
+ * `ver_comprovantes` só fica sabendo QUE existe — os caminhos (que abrem o arquivo) não saem.
+ */
+async function shapePedidos(u: AuthUser, ps: any[]) {
+  const locais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((l) => [l.id, l.name]))
+  return ps.map((p) => {
+    const comprovantes = parseJsonArray(p.comprovantes)
+    const pode = podeVerComprovante(u, p)
+    const itens = parseJsonArray(p.itens)
+    return {
+      ...p,
+      itens: podeVerValores(u) ? itens : semValor(itens),
+      fotos: parseJsonArray(p.fotos),
+      comprovantes: pode ? comprovantes : [],
+      qtdComprovantes: comprovantes.length,
+      podeVerComprovante: pode,
+      localName: p.localId ? locais[p.localId] : undefined,
+    }
+  })
+}
+
+/** Lista de arquivos: caminhos que já existem ficam; data URLs novas viram arquivo. */
+async function lerArquivos(lista: any, aceitaPdf: boolean, limite: number): Promise<string[] | null> {
+  if (!Array.isArray(lista)) return null
+  const out: string[] = []
+  for (const c of lista.slice(0, limite)) {
+    if (typeof c === 'string' && (aceitaPdf ? COMPROVANTE_PATH_RE : UPLOAD_PATH_RE).test(c)) out.push(c)
+    else {
+      const salvo = await saveDataUrl(c, aceitaPdf)
+      if (!salvo) return null
+      out.push(salvo)
+    }
+  }
+  return out
+}
+
+/** Itens do pedido: nomes e valor vêm do catálogo; item que saiu do catálogo fica como estava. */
+async function lerItensPedido(arr: any, verValores = true, anteriores: any[] = []): Promise<any[] | null> {
+  if (!Array.isArray(arr)) return null
+  const cat = await catalogoPedidos()
+  const itens = arr.slice(0, 40).map((i: any) => {
+    const c = cat.find((x) => x.key === i?.categoria)
+    const it = c?.itens.find((x) => x.key === i?.item)
+    const antigo = anteriores.find((x) => x.categoria === i?.categoria && x.item === i?.item)
+    // Quem não vê valor também não o define: vale o que o pedido já tinha, ou o do catálogo.
+    const digitado = verValores && Number.isFinite(Number(i?.valor)) && i?.valor !== null && i?.valor !== ''
+    const valor = digitado ? Math.round(Number(i.valor) * 100) / 100 : verValores ? it?.valor ?? null : antigo?.valor ?? it?.valor ?? null
+    return {
+      categoria: String(i?.categoria ?? '').slice(0, 40),
+      categoriaLabel: c?.label ?? String(i?.categoriaLabel ?? i?.categoria ?? '').slice(0, 60),
+      item: String(i?.item ?? '').slice(0, 40),
+      itemLabel: it?.label ?? String(i?.itemLabel ?? i?.item ?? '').slice(0, 80),
+      quantidade: Math.min(9999, Math.max(1, Math.floor(Number(i?.quantidade) || 1))),
+      valor,
+    }
+  }).filter((i: any) => i.categoria && i.item)
+  return itens
+}
+
+/** Campos do formulário, validados. */
+async function lerPedido(b: any, antes?: any, verValores = true): Promise<{ data: any } | { erro: string }> {
+  const data: any = {}
+  if ('modalidade' in b) {
+    if (!MODALIDADES_PEDIDO.has(String(b.modalidade))) return { erro: 'modalidade inválida' }
+    data.modalidade = String(b.modalidade)
+  }
+  if ('localId' in b) data.localId = b.localId ? String(b.localId) : null
+  for (const k of ['apartamento', 'bloco'] as const) if (k in b) data[k] = String(b[k] ?? '').trim().slice(0, 40)
+  if ('solicitante' in b) data.solicitante = String(b.solicitante ?? '').trim().slice(0, 200) || null
+  // Serial é sempre em maiúsculas: é assim que vem gravado no aparelho e que se procura.
+  if ('seriais' in b) data.seriais = String(b.seriais ?? '').toUpperCase().slice(0, 5000)
+  if ('observacao' in b) data.observacao = String(b.observacao ?? '').slice(0, 5000)
+  if ('pedidoEm' in b && b.pedidoEm) {
+    const d = new Date(String(b.pedidoEm))
+    if (Number.isNaN(d.getTime())) return { erro: 'data do pedido inválida' }
+    if (d.getTime() > Date.now() + 5 * 60000) return { erro: 'a data do pedido não pode ser no futuro' }
+    data.pedidoEm = d
+  }
+  if ('itens' in b) {
+    const itens = await lerItensPedido(b.itens, verValores, antes ? parseJsonArray(antes.itens) : [])
+    if (!itens) return { erro: 'itens inválidos' }
+    if (!itens.length) return { erro: 'adicione ao menos um item' }
+    data.itens = JSON.stringify(itens)
+  }
+  if ('comprovantes' in b) {
+    const lista = await lerArquivos(b.comprovantes, true, 10)
+    if (!lista) return { erro: 'comprovante inválido — envie imagem ou PDF de até 15 MB' }
+    data.comprovantes = JSON.stringify(lista)
+    if (antes) await deleteUploads((parseJsonArray(antes.comprovantes) as string[]).filter((x) => !lista.includes(x)))
+  }
+  if ('fotos' in b) {
+    const lista = await lerArquivos(b.fotos, false, 12)
+    if (!lista) return { erro: 'foto inválida' }
+    data.fotos = JSON.stringify(lista)
+    if (antes) await deleteUploads((parseJsonArray(antes.fotos) as string[]).filter((x) => !lista.includes(x)))
+  }
+  const modalidade = data.modalidade ?? antes?.modalidade ?? 'pedido'
+  const apto = 'apartamento' in data ? data.apartamento : antes?.apartamento
+  // Pedido e manutenção são de uma unidade: sem apartamento não se sabe a quem entregar.
+  if (modalidade !== 'lote' && !apto) return { erro: 'informe o apartamento' }
+  if (modalidade === 'lote') { data.apartamento = ''; data.bloco = '' }
+  return { data }
+}
+
+/**
+ * Resumo de um conjunto de pedidos: quantos de cada item, quanto por local e o total.
+ * É o mesmo no relatório mensal e no relatório próprio de Controles & Tags.
+ */
+function resumoPedidos(ps: any[], nomesLocais: Record<string, string>) {
+  const porItem = new Map<string, { categoria: string; categoriaLabel: string; item: string; itemLabel: string; quantidade: number; valor: number }>()
+  const porLocal = new Map<string, { nome: string; pedidos: number; itens: number; valor: number }>()
+  const porModalidade: Record<string, number> = { pedido: 0, manutencao: 0, lote: 0 }
+  let valor = 0
+  let itens = 0
+  for (const p of ps) {
+    porModalidade[p.modalidade] = (porModalidade[p.modalidade] ?? 0) + 1
+    const nome = p.localId ? nomesLocais[p.localId] ?? '—' : 'Sem local'
+    const l = porLocal.get(nome) ?? { nome, pedidos: 0, itens: 0, valor: 0 }
+    l.pedidos++
+    for (const i of parseJsonArray(p.itens) as any[]) {
+      const v = (Number(i.valor) || 0) * i.quantidade
+      const k = `${i.categoria}|${i.item}`
+      const e = porItem.get(k) ?? { categoria: i.categoria, categoriaLabel: i.categoriaLabel, item: i.item, itemLabel: i.itemLabel, quantidade: 0, valor: 0 }
+      e.quantidade += i.quantidade
+      e.valor += v
+      porItem.set(k, e)
+      l.itens += i.quantidade
+      l.valor += v
+      itens += i.quantidade
+      valor += v
+    }
+    porLocal.set(nome, l)
+  }
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  return {
+    pedidos: ps.length,
+    itens,
+    valor: r2(valor),
+    entregues: ps.filter((p) => p.entregueEm).length,
+    porModalidade,
+    porItem: [...porItem.values()].map((x) => ({ ...x, valor: r2(x.valor) })).sort((a, b) => b.quantidade - a.quantidade),
+    porLocal: [...porLocal.values()].map((x) => ({ ...x, valor: r2(x.valor) })).sort((a, b) => b.valor - a.valor || b.pedidos - a.pedidos),
+  }
+}
+
+/** Pedidos de um mês (pela data do pedido), dentro do que a pessoa pode ver. */
+async function pedidosDoMes(u: AuthUser, inicio: Date, fim: Date, localId?: string) {
+  const ids = scopeIds(u)
+  const ps = await prisma.pedido.findMany({ where: { pedidoEm: { gte: inicio, lt: fim }, ...(localId ? { localId } : {}) }, orderBy: { pedidoEm: 'asc' } })
+  return ps.filter((p) => canSeePedido(u, p, ids))
+}
+
+/** Relatório próprio de Controles & Tags: o resumo no topo e cada pedido do mês. */
+app.get('/pedidos/relatorio', async (req: any, reply) => {
+  const u = await guard(req, reply, 'ver_pedidos')
+  if (!u) return
+  const localId = String(req.query?.localId ?? '')
+  if (localId && outOfScope(u, localId, reply)) return
+  const agora = new Date()
+  const m = /^(\d{4})-(\d{2})$/.exec(String(req.query?.month ?? ''))
+  const ano = m ? Number(m[1]) : agora.getFullYear()
+  const mes = m ? Number(m[2]) - 1 : agora.getMonth()
+  const inicio = new Date(ano, mes, 1)
+  const fim = new Date(ano, mes + 1, 1)
+  const nomesLocais = Object.fromEntries((await prisma.local.findMany({ select: { id: true, name: true } })).map((l) => [l.id, l.name]))
+  const ps = await pedidosDoMes(u, inicio, fim, localId || undefined)
+  const resumo: any = resumoPedidos(ps, nomesLocais)
+  const comValores = podeVerValores(u)
+  if (!comValores) {
+    resumo.valor = null
+    resumo.porItem = resumo.porItem.map((x: any) => ({ ...x, valor: null }))
+    resumo.porLocal = resumo.porLocal.map((x: any) => ({ ...x, valor: null }))
+  }
+  return {
+    periodo: { inicio: inicio.toISOString(), fim: fim.toISOString(), mes: `${ano}-${String(mes + 1).padStart(2, '0')}` },
+    comValores,
+    resumo,
+    lista: await shapePedidos(u, ps),
+  }
+})
+
+app.get('/pedidos', async (req: any, reply) => {
+  const u = await guard(req, reply, 'ver_pedidos')
+  if (!u) return
+  const ids = scopeIds(u)
+  const q = req.query ?? {}
+  // Tudo: os abertos vão para as faixas, os entregues para a lista por data (como os
+  // concluídos dos chamados).
+  const where: any = {}
+  const ps = await prisma.pedido.findMany({ where, orderBy: { pedidoEm: 'desc' }, take: 5000 })
+  return shapePedidos(u, ps.filter((p) => canSeePedido(u, p, ids)))
+})
+
+app.post('/pedidos', async (req: any, reply) => {
+  const u = await guard(req, reply, 'criar_pedidos')
+  if (!u) return
+  const b = req.body ?? {}
+  if (!b.localId) return reply.code(400).send({ error: 'escolha o local do pedido' })
+  if (!Array.isArray(b.itens) || !b.itens.length) return reply.code(400).send({ error: 'adicione ao menos um item' })
+  const lido = await lerPedido({ modalidade: 'pedido', ...b }, undefined, podeVerValores(u))
+  if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
+  if (outOfScope(u, lido.data.localId, reply)) return
+  // Lançado já com comprovante = já está pago: é o caminho normal do operador.
+  const pago = parseJsonArray(lido.data.comprovantes).length > 0 ? { pagoEm: new Date(), pagoPor: u.name } : {}
+  const p = await prisma.pedido.create({ data: { ...lido.data, ...pago, code: await nextPedidoCode(), autorId: u.sub, autorName: u.name } })
+  const localName = (await prisma.local.findUnique({ where: { id: p.localId! }, select: { name: true } }))?.name
+  await audit(u, 'criar', 'pedido', p.code, localName, [p.modalidade, [p.bloco && `bloco ${p.bloco}`, p.apartamento && `apto ${p.apartamento}`].filter(Boolean).join(' ')].filter(Boolean).join(' · '))
+  return (await shapePedidos(u, [p]))[0]
+})
+
+app.patch('/pedidos/:id', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  const antes = await prisma.pedido.findUnique({ where: { id: req.params.id } })
+  if (!antes || !u.perms.has('ver_pedidos') || !canSeePedido(u, antes, scopeIds(u))) return reply.code(404).send()
+  let b = req.body ?? {}
+  if (!podeEditarPedido(u, antes)) {
+    // Quem só marca etapas ainda anexa foto e serial — é quem configura o controle.
+    if (!u.perms.has('marcar_etapas_pedido')) return reply.code(403).send({ error: 'sem permissão' })
+    b = Object.fromEntries(Object.entries(b).filter(([k]) => k === 'fotos' || k === 'seriais'))
+  }
+  // Quem não vê o comprovante recebe a lista vazia — salvar de volta não pode apagá-lo.
+  if (!podeVerComprovante(u, antes)) delete b.comprovantes
+  if ('localId' in b && !b.localId) return reply.code(400).send({ error: 'o pedido precisa de um local' })
+  // O caminho das etapas depende da modalidade: com etapa marcada, ela não muda mais.
+  if ('modalidade' in b && b.modalidade !== antes.modalidade && (antes.pagoEm || antes.feitoEm || antes.entregueEm)) {
+    return reply.code(400).send({ error: 'desmarque as etapas antes de trocar a modalidade' })
+  }
+  const lido = await lerPedido(b, antes, podeVerValores(u))
+  if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
+  if (lido.data.localId && outOfScope(u, lido.data.localId, reply)) return
+  const p = await prisma.pedido.update({ where: { id: antes.id }, data: lido.data })
+  await audit(u, 'editar', 'pedido', p.code)
+  return (await shapePedidos(u, [p]))[0]
+})
+
+/**
+ * Marca a próxima etapa (ou desmarca a última). Cada uma pede a sua prova: pago pede
+ * comprovante, feito pede serial ou foto do serial. A janela da tela manda o que faltava
+ * junto (`comprovantes`, `seriais`, `fotos`), e tudo é salvo de uma vez.
+ */
+app.post('/pedidos/:id/etapa', async (req: any, reply) => {
+  const u = await guard(req, reply, 'marcar_etapas_pedido')
+  if (!u) return
+  const antes = await prisma.pedido.findUnique({ where: { id: req.params.id } })
+  if (!antes || !canSeePedido(u, antes, scopeIds(u))) return reply.code(404).send()
+  const b = req.body ?? {}
+  const etapa = String(b.etapa ?? '') as EtapaPedido
+  const fluxo = fluxoDe(antes.modalidade)
+  const i = fluxo.indexOf(etapa)
+  if (i < 0) return reply.code(400).send({ error: 'esta etapa não existe nesta modalidade' })
+  const marcada = (e: EtapaPedido) => !!(antes as any)[CAMPOS_ETAPA[e][0]]
+  const [em, por] = CAMPOS_ETAPA[etapa]
+  const data: any = {}
+
+  if (b.valor === false) {
+    const seguinte = fluxo[i + 1]
+    if (seguinte && marcada(seguinte)) return reply.code(400).send({ error: `desmarque "${seguinte}" antes` })
+    data[em] = null; data[por] = null
+  } else {
+    const anterior = fluxo[i - 1]
+    if (anterior && !marcada(anterior)) return reply.code(400).send({ error: `marque "${anterior}" antes` })
+    const extra: any = {}
+    if ('comprovantes' in b && podeVerComprovante(u, antes)) extra.comprovantes = b.comprovantes
+    else if ('comprovantes' in b && Array.isArray(b.comprovantes)) extra.comprovantes = [...parseJsonArray(antes.comprovantes), ...b.comprovantes.filter((c: any) => typeof c === 'string' && c.startsWith('data:'))]
+    if ('seriais' in b) extra.seriais = b.seriais
+    if ('fotos' in b) extra.fotos = b.fotos
+    const lido = await lerPedido(extra, antes, podeVerValores(u))
+    if ('erro' in lido) return reply.code(400).send({ error: lido.erro })
+    Object.assign(data, lido.data)
+    const comprovantes = data.comprovantes ? JSON.parse(data.comprovantes) : parseJsonArray(antes.comprovantes)
+    const seriais = String(data.seriais ?? antes.seriais).trim()
+    const fotos = data.fotos ? JSON.parse(data.fotos) : parseJsonArray(antes.fotos)
+    if (etapa === 'pago' && !comprovantes.length) return reply.code(400).send({ error: 'anexe o comprovante para marcar como pago' })
+    // Serial é prova do controle configurado; na manutenção "resolvido" é decisão, não pede.
+    if (etapa === 'feito' && antes.modalidade === 'pedido' && !seriais && !fotos.length) return reply.code(400).send({ error: 'informe o serial ou anexe a foto do serial para marcar como feito' })
+    data[em] = b.quando ? new Date(String(b.quando)) : new Date()
+    if (Number.isNaN(data[em].getTime())) return reply.code(400).send({ error: 'data inválida' })
+    data[por] = u.name
+  }
+  const p = await prisma.pedido.update({ where: { id: antes.id }, data })
+  await audit(u, 'editar', 'pedido', p.code, undefined, `${b.valor === false ? 'Desmarcou' : 'Marcou'} ${etapa}`)
+  return (await shapePedidos(u, [p]))[0]
+})
+
+app.delete('/pedidos/:id', async (req: any, reply) => {
+  const u = await requireAuth(req, reply)
+  if (!u) return
+  const p = await prisma.pedido.findUnique({ where: { id: req.params.id } })
+  if (!p || !u.perms.has('ver_pedidos') || !canSeePedido(u, p, scopeIds(u))) return reply.code(404).send()
+  // O próprio pedido, quem lança apaga; o dos outros, só com a permissão.
+  const pode = u.perms.has('excluir_pedidos') || (ehAutor(u, p) && u.perms.has('criar_pedidos'))
+  if (!pode) return reply.code(403).send({ error: 'sem permissão' })
+  await prisma.pedido.delete({ where: { id: p.id } })
+  await deleteUploads([...(parseJsonArray(p.comprovantes) as string[]), ...(parseJsonArray(p.fotos) as string[])])
+  await audit(u, 'excluir', 'pedido', p.code, undefined, p.observacao.slice(0, 200) || undefined)
+  return { ok: true }
+})
+
 app.get('/settings', async (req: any, reply) => {
   const u = await requireAuth(req, reply)
   if (!u) return
   const rows = await prisma.setting.findMany()
-  return Object.fromEntries(rows.filter((s) => !s.key.startsWith('vapid_')).map((s) => [s.key, s.value]))
+  const out = Object.fromEntries(rows.filter((s) => !s.key.startsWith('vapid_')).map((s) => [s.key, s.value]))
+  // Catálogo sem os valores para quem não pode vê-los (o padrão, sem setting, já não tem valor).
+  if (out.pedido_catalogo && !podeVerValores(u)) {
+    try { out.pedido_catalogo = JSON.stringify(JSON.parse(out.pedido_catalogo).map((c: any) => ({ ...c, itens: semValor(c.itens ?? []) }))) } catch { /* deixa como está */ }
+  }
+  return out
 })
 
-const SETTINGS_EDITAVEIS = new Set(['ticket_statuses', 'registro_tipos', 'local_tipos'])
+const SETTINGS_EDITAVEIS = new Set(['ticket_statuses', 'registro_tipos', 'local_tipos', 'pedido_catalogo'])
 
 app.patch('/settings/:key', async (req: any, reply) => {
   const u = await requireAuth(req, reply)
@@ -2090,7 +2495,7 @@ app.patch('/settings/:key', async (req: any, reply) => {
   if (!SETTINGS_EDITAVEIS.has(key)) return reply.code(400).send({ error: 'configuração desconhecida' })
   // Os tipos de local são de quem cuida dos locais; as colunas e as categorias, de quem
   // cuida do quadro. Cada lista pertence a quem administra a tela dela.
-  const permissaoDaLista = key === 'local_tipos' ? 'gerenciar_locais' : 'gerenciar_status_chamados'
+  const permissaoDaLista = key === 'local_tipos' ? 'gerenciar_locais' : key === 'pedido_catalogo' ? 'gerenciar_catalogo_pedidos' : 'gerenciar_status_chamados'
   if (!u.perms.has(permissaoDaLista)) return reply.code(403).send({ error: 'sem permissão' })
   let value = String(req.body?.value ?? '')
 
@@ -2138,6 +2543,29 @@ app.patch('/settings/:key', async (req: any, reply) => {
       await prisma.local.updateMany({ where: { tipo: { notIn: ['', ...chaves] } }, data: { tipo: '' } })
       await audit(u, 'editar', 'local', `${orfaos} local(is)`, undefined, 'Tipo removido — ficaram sem tipo')
     }
+  }
+
+  /**
+   * CATÁLOGO DOS PEDIDOS: categorias com os itens dentro, e o valor de cada item. Mudar
+   * aqui não reescreve pedido: o pedido guardou nome e valor do dia em que foi lançado.
+   */
+  if (key === 'pedido_catalogo') {
+    let arr: any
+    try { arr = JSON.parse(value) } catch { return reply.code(400).send({ error: 'catálogo inválido (JSON)' }) }
+    if (!Array.isArray(arr) || arr.length === 0) return reply.code(400).send({ error: 'deixe ao menos uma categoria' })
+    const list = arr.slice(0, 20).map((c: any) => ({
+      key: String(c.key ?? '').slice(0, 40),
+      label: String(c.label ?? '').trim().slice(0, 40),
+      color: /^#[0-9a-fA-F]{6}$/.test(String(c.color ?? '')) ? String(c.color) : '#a1a1aa',
+      tipo: c.tipo === 'manutencao' ? 'manutencao' : 'item',
+      itens: (Array.isArray(c.itens) ? c.itens : []).slice(0, 50).map((i: any) => ({
+        key: String(i.key ?? '').slice(0, 40),
+        label: String(i.label ?? '').trim().slice(0, 60),
+        valor: i.valor === null || i.valor === '' || i.valor === undefined || !Number.isFinite(Number(i.valor)) ? null : Math.max(0, Math.round(Number(i.valor) * 100) / 100),
+      })),
+    }))
+    if (list.some((c) => !c.key || !c.label || c.itens.some((i: any) => !i.key || !i.label))) return reply.code(400).send({ error: 'toda categoria e todo item precisam de nome' })
+    value = JSON.stringify(list)
   }
 
   if (key === 'ticket_statuses') {

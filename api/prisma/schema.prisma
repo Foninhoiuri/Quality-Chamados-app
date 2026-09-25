@@ -44,6 +44,9 @@ model User {
   status             String       @default("ativo")
   passwordHash       String
   mustChangePassword Boolean      @default(false) // primeiro acesso / após reset
+  // A senha temporária, CIFRADA, só enquanto a pessoa não criou a dela — para quem tem
+  // `ver_senha_temporaria` repassar de novo. Some na troca de senha.
+  senhaTemp          String?
   phone              String?
   avatar             String? // caminho /uploads/... da foto de perfil
   // Sobre o que este usuário quer ser avisado. JSON {evento: boolean}; vazio = tudo ligado.
@@ -105,6 +108,7 @@ model Local {
   updatedAt DateTime @updatedAt
   tickets   Ticket[]
   registros Registro[]
+  pedidos   Pedido[]
 }
 
 // ----------------------------- Chamados -----------------------------
@@ -222,4 +226,38 @@ model AuditLog {
 model Setting {
   key   String @id
   value String
+}
+
+// PEDIDO de controle, tag e afins. Três modalidades: `pedido` (morador pede para a
+// unidade), `manutencao` (aparelho que voltou com defeito) e `lote` (o condomínio pede
+// em quantidade). Anda por três marcas independentes — pago, feito, entregue — cada uma
+// com quem marcou e quando.
+model Pedido {
+  id           String    @id @default(cuid())
+  code         String
+  modalidade   String    @default("pedido") // pedido | manutencao | lote
+  localId      String?
+  local        Local?    @relation(fields: [localId], references: [id], onDelete: SetNull)
+  apartamento  String    @default("")
+  bloco        String    @default("")
+  solicitante  String?
+  // Quando foi pedido — nasce agora, mas quem lança acerta (pedido que chegou ontem).
+  pedidoEm     DateTime  @default(now())
+  // [{ categoria, categoriaLabel, item, itemLabel, quantidade, valor }] — os nomes e o valor
+  // são copiados do catálogo (`pedido_catalogo`) na hora: mudar o catálogo não reescreve pedido.
+  itens        String    @default("[]")
+  fotos        String    @default("[]") // fotos do serial / do controle, a qualquer momento
+  seriais      String    @default("") // um por linha
+  observacao   String    @default("")
+  comprovantes String    @default("[]") // caminhos /uploads/... (imagem ou PDF)
+  pagoEm       DateTime?
+  pagoPor      String?
+  feitoEm      DateTime?
+  feitoPor     String?
+  entregueEm   DateTime?
+  entreguePor  String?
+  autorId      String?
+  autorName    String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }

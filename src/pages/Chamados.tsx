@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Pencil, Trash2, MessageSquare, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MessagesSquare, ArrowRightLeft, Navigation, Copy } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, Undo2, Building2, Clock, Settings2, X, Search, Loader2, HandHelping, Camera, GripVertical, TriangleAlert, CheckCircle2, Phone, Ban, MapPin, Users, Wrench, CalendarClock, ArrowRight, MessagesSquare, ArrowRightLeft, Navigation, Copy, FileBarChart } from 'lucide-react'
 import { Button, EmptyState, Modal, PageHeader, Field, FieldBox, Input, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { useMobile } from '@/lib/useMediaQuery'
@@ -13,6 +13,7 @@ import { ChatChamado } from '@/components/chamados/ChatChamado'
 import { LocalSelect, mapsUrl } from '@/components/LocalSelect'
 import { CompartilharChamado } from '@/components/CompartilharChamado'
 import { ListaConcluidos } from '@/components/chamados/ListaConcluidos'
+import { RelatorioChamados } from '@/components/chamados/RelatorioChamados'
 import { aplicarFiltros, FiltrosChamados, FILTRO_VAZIO, type FiltroChamados } from '@/components/chamados/FiltrosChamados'
 import { AvatarPessoa } from '@/components/Pessoa'
 import { SiglaLocal } from '@/components/SiglaLocal'
@@ -90,6 +91,8 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
   const canServico = useCan('definir_servico')
   const canHistorico = useCan('ver_arquivados')
   const canEditarConcluido = useCan('editar_concluidos')
+  const canRelatorio = useCan('ver_relatorios')
+  const [relatorio, setRelatorio] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -379,7 +382,10 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
         subtitle={`${rows.length} chamado(s) · ${TITULO[fase].subtitulo}`}
         actions={fase === 'aberto' && canCreate && <Button onClick={openNew}><Plus size={15} /> Novo chamado</Button>}
         // Colunas só existem em Em andamento — as outras duas fases são uma coluna só.
-        menu={[fase === 'andamento' && canManageStatus && { label: 'Colunas', icon: <Settings2 size={15} />, onClick: () => setManaging(true) }]}
+        menu={[
+          canRelatorio && { label: 'Relatório', icon: <FileBarChart size={15} />, onClick: () => setRelatorio(true) },
+          fase === 'andamento' && canManageStatus && { label: 'Colunas', icon: <Settings2 size={15} />, onClick: () => setManaging(true) },
+        ]}
       />
 
       <FiltrosChamados fase={fase} valor={filtros} onChange={setFiltros} colunas={colunas} />
@@ -619,6 +625,8 @@ export default function Chamados({ fase }: { fase: FaseChamado }) {
           )}
         </div>
       </Modal>
+
+      {relatorio && <RelatorioChamados onClose={() => setRelatorio(false)} />}
 
       {managing && (
         <StatusManager

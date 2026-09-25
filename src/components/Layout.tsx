@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2, CloudOff, CircleHelp } from 'lucide-react'
+import { LayoutDashboard, Ticket, Bell, ChevronDown, ScrollText, FileBarChart, Users, LogOut, Settings, Building2, TriangleAlert, X, ListOrdered, Inbox, Wrench, CheckCircle2, CloudOff, CircleHelp, KeySquare } from 'lucide-react'
 import { cn, iniciais } from '@/lib/utils'
 import { useStore, useCurrentUser, useCurrentRole, usePerms } from '@/lib/store'
 import { assetUrl } from '@/lib/api'
@@ -14,7 +14,13 @@ import { useClickFora } from '@/lib/useClickFora'
 import { AREA_DA_ROTA, useNovidades } from '@/lib/novidades'
 import { assinarFila, pendentes, processarFila } from '@/lib/fila'
 
-type NavItem = { to: string; label: string; menuLabel?: string; icon: typeof Users; perm?: string; end?: boolean }
+type NavItem = {
+  to: string; label: string; menuLabel?: string; icon: typeof Users; perm?: string; end?: boolean
+  /** Só na barra lateral do computador — a barra do celular tem espaço para cinco. */
+  soDesktop?: boolean
+  /** Só no menu da conta do celular (o computador já tem na barra lateral). */
+  soMobile?: boolean
+}
 
 // `perm` esconde o item de quem não tem a permissão.
 // A barra é o caminho do chamado: ele nasce em Abertos, anda em Em andamento e termina
@@ -25,9 +31,11 @@ const NAV: NavItem[] = [
   { to: '/andamento', label: 'Em andamento', menuLabel: 'Chamados em andamento', icon: Wrench, perm: 'ver_chamados' },
   { to: '/concluidos', label: 'Concluídos', icon: CheckCircle2, perm: 'ver_chamados' },
   { to: '/registros', label: 'Registros', icon: ListOrdered, perm: 'ver_registros' },
+  { to: '/pedidos', label: 'Controles & Tags', menuLabel: 'Controles & Tags', icon: KeySquare, perm: 'ver_pedidos', soDesktop: true },
 ]
 
 const MORE_LINKS: NavItem[] = [
+  { to: '/pedidos', label: 'Controles & Tags', menuLabel: 'Controles & Tags', icon: KeySquare, perm: 'ver_pedidos', soMobile: true },
   { to: '/relatorios', label: 'Relatórios', icon: FileBarChart, perm: 'ver_relatorios' },
   { to: '/locais', label: 'Locais', icon: Building2, perm: 'ver_locais' },
   { to: '/usuarios', label: 'Usuários', menuLabel: 'Usuários e permissões', icon: Users, perm: 'ver_usuarios' },
@@ -120,8 +128,8 @@ function ContaCard({ aberto, onAbrir, compacto, comoBotaoDaBarra }: {
               {naoLidas > 0 && <span className="rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">{naoLidas > 9 ? '9+' : naoLidas}</span>}
               <ChevronDown size={14} className="-rotate-90 text-slate-600" />
             </button>
-            {allowed(MORE_LINKS, perms).map(({ to, menuLabel, label, icon: Icon }) => (
-              <Link key={to} to={to} onClick={fechar} className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-slate-300 hover:bg-slate-800">
+            {allowed(MORE_LINKS, perms).map(({ to, menuLabel, label, icon: Icon, soMobile }) => (
+              <Link key={to} to={to} onClick={fechar} className={cn('flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-slate-300 hover:bg-slate-800', soMobile && 'md:hidden')}>
                 <Icon size={16} className="text-slate-400" />
                 {menuLabel ?? label}
               </Link>
@@ -276,7 +284,7 @@ function ListaNotificacoes({ onFechar, onIr }: { onFechar: () => void; onIr: () 
 function MobileNav({ temNovidade }: { temNovidade: (rota: string) => boolean }) {
   const [conta, setConta] = useState(false)
   const perms = usePerms()
-  const nav = allowed(NAV, perms)
+  const nav = allowed(NAV, perms).filter((i) => !i.soDesktop)
   const tile = (isActive: boolean) => cn('relative flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium', isActive ? 'text-red-400' : 'text-slate-400')
 
   return (

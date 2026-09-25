@@ -8,9 +8,11 @@ import { api } from '@/lib/api'
 import { fmtDataHora, fmtMinutos } from '@/lib/utils'
 import { CORES_FASE } from '@/lib/tickets'
 import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
-import { parseTiposLocal, tipoLocalDe } from '@/lib/locais'
+import { parseTiposLocal, siglaDoTipo, tipoLocalDe } from '@/lib/locais'
+import { baixarCsv } from '@/lib/relatorioCsv'
+import { parseCatalogo, ResumoPedidos } from '@/components/pedidos/ResumoPedidos'
 import { SERIE, axisTick, gridStroke, tooltipItem, tooltipLabel, tooltipStyle } from '@/lib/chart'
-import type { MonthlyReport } from '@/lib/types'
+import type { MonthlyReport, TipoRegistroDef } from '@/lib/types'
 
 /** Últimos 12 meses como 'YYYY-MM' + rótulo legível. */
 function ultimosMeses(n = 12) {
@@ -64,33 +66,13 @@ function Numero({ label, valor, sufixo, tom, hint }: { label: string; valor: str
   )
 }
 
-/** CSV com `;` (abre direto no Excel em pt-BR) e BOM para os acentos. */
-function baixarCsv(dados: MonthlyReport) {
-  const cab = ['Código', 'Título', 'Local', 'Status', 'Aberto por', 'Técnico', 'Aberto em', 'Concluído em', 'Horas no mês']
-  const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v)
-    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  const linhas = dados.lista.map((t) => [
-    t.code, t.title, t.local, t.status, t.abertoPor, t.responsavel,
-    fmtDataHora(t.criadoEm), t.concluidoEm ? fmtDataHora(t.concluidoEm) : '',
-    t.minutosNoMes ? (t.minutosNoMes / 60).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '',
-  ].map(esc).join(';'))
-  const blob = new Blob(['﻿' + [cab.join(';'), ...linhas].join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `chamados-${dados.periodo.mes}${dados.local ? `-${dados.local.code}` : ''}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 export default function Relatorios() {
   const locais = useStore((s) => s.locais)
   const settings = useStore((s) => s.settings)
   const showToast = useStore((s) => s.showToast)
   const tiposRegistro = useMemo(() => parseTiposRegistro(settings), [settings])
   const tiposLocal = useMemo(() => parseTiposLocal(settings), [settings])
+  const catalogo = useMemo(() => parseCatalogo(settings), [settings])
   const meses = ultimosMeses()
   const [localId, setLocalId] = useState('')
   const [mes, setMes] = useState(meses[0].key)
@@ -99,6 +81,9 @@ export default function Relatorios() {
   const [carregando, setCarregando] = useState(false)
   const [gerandoPdf, setGerandoPdf] = useState(false)
   const [maisNumeros, setMaisNumeros] = useState(false)
+  /** Tipo de local escolhido na seção de tipos: filtra a lista de chamados. null = todos. */
+  const [tipoFiltro, setTipoFiltro] = useState<string | null>(null)
+  useEffect(() => { setTipoFiltro(null) }, [localId, mes])
 
   useEffect(() => {
     let vivo = true
@@ -112,6 +97,9 @@ export default function Relatorios() {
   }, [localId, mes])
 
   const r = dados?.resumo
+  const listaFiltrada = (dados?.lista ?? []).filter((t) => tipoFiltro === null || (t.tipoLocal ?? '') === tipoFiltro)
+  /** A sigla do tipo (COND, OBRA…) ao lado do local — é assim que se vê de que tipo é cada chamado. */
+  const siglaDe = (k?: string) => { const t = tipoLocalDe(tiposLocal, k); return t ? <span className="mr-1 rounded px-1 font-mono text-[10px] font-semibold" style={{ color: t.color, background: `${t.color}1e` }}>{siglaDoTipo(t)}</span> : null }
   const nomeMes = meses.find((m) => m.key === mes)?.label ?? mes
 
   return (
@@ -151,7 +139,7 @@ export default function Relatorios() {
               }
             },
           },
-          { label: 'Exportar CSV', icon: <Download size={15} />, disabled: !dados?.lista.length, onClick: () => dados && baixarCsv(dados) },
+          { label: 'Exportar CSV', icon: <Download size={15} />, disabled: !dados?.lista.length, onClick: () => dados && baixarCsv(dados, tiposLocal) },
         ]}
       />
 
@@ -275,13 +263,20 @@ export default function Relatorios() {
           {dados.porTipoLocal?.some((x) => x.tipo) && (() => {
             const maior = Math.max(1, ...dados.porTipoLocal.map((x) => x.abertos + x.concluidos))
             return (
-              <Secao titulo="Chamados por tipo de local" hint="Abertos e concluídos no mês, pela etiqueta do local. Do tipo mais atendido ao menos.">
-                <div className="space-y-2.5">
+              <Secao titulo="Chamados por tipo de local" hint="Abertos e concluídos no mês, pela etiqueta do local. Toque num tipo para ver os chamados dele na lista do período.">
+                <div className="space-y-1">
                   {dados.porTipoLocal.map((x) => {
                     const t = tipoLocalDe(tiposLocal, x.tipo) ?? { key: '', label: 'Sem tipo', color: '#64748b' }
                     const total = x.abertos + x.concluidos
                     return (
-                      <div key={x.tipo || 'sem'}>
+                      <button
+                        key={x.tipo || 'sem'}
+                        type="button"
+                        onClick={() => setTipoFiltro(tipoFiltro === x.tipo ? null : x.tipo)}
+                        aria-pressed={tipoFiltro === x.tipo}
+                        title="Mostrar só os chamados deste tipo na lista do período"
+                        className={`block w-full rounded-lg p-1.5 text-left hover:bg-slate-800/40 ${tipoFiltro === x.tipo ? 'bg-slate-800/60 ring-1 ring-slate-700' : ''}`}
+                      >
                         <div className="mb-1 flex items-center justify-between gap-2 text-[13px]">
                           <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-slate-200">
                             <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t.color }} /> {t.label}
@@ -293,13 +288,19 @@ export default function Relatorios() {
                         <div className="h-2 overflow-hidden rounded-full bg-slate-800">
                           <div className="h-full rounded-full" style={{ width: `${(total / maior) * 100}%`, background: t.color }} />
                         </div>
-                      </div>
+                      </button>
                     )
                   })}
                 </div>
               </Secao>
             )
           })()}
+
+          {dados.pedidos && dados.pedidos.pedidos > 0 && (
+            <Secao titulo="Controles & Tags" hint="Pedidos do mês pela data do pedido: por tipo de item, por local com valor, e o total.">
+              <ResumoPedidos r={dados.pedidos} catalogo={catalogo} />
+            </Secao>
+          )}
 
           <Secao titulo="Por dia">
             <ResponsiveContainer width="100%" height={220}>
@@ -330,16 +331,26 @@ export default function Relatorios() {
 
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
-              <div className="text-sm font-medium text-slate-200">Chamados do período</div>
-              <span className="text-[11px] text-slate-500">{dados.lista.length} no mês</span>
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-200">
+                Chamados do período
+                {tipoFiltro !== null && (() => {
+                  const t = tipoLocalDe(tiposLocal, tipoFiltro) ?? { key: '', label: 'Sem tipo', color: '#64748b' }
+                  return (
+                    <button onClick={() => setTipoFiltro(null)} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-normal" style={{ color: t.color, background: `${t.color}1e` }} title="Mostrar todos">
+                      {t.label} ✕
+                    </button>
+                  )
+                })()}
+              </div>
+              <span className="text-[11px] text-slate-500">{listaFiltrada.length}{tipoFiltro !== null ? ` de ${dados.lista.length}` : ''} no mês</span>
             </div>
-            {dados.lista.length === 0 ? (
+            {listaFiltrada.length === 0 ? (
               <div className="p-4"><EmptyState>Nenhum chamado neste período.</EmptyState></div>
             ) : (
               <>
                 {/* Celular: cada chamado é um bloco, não uma linha de sete colunas. */}
                 <div className="divide-y divide-slate-800/60 md:hidden">
-                  {dados.lista.map((t) => (
+                  {listaFiltrada.map((t) => (
                     <div key={t.id} className="px-4 py-2.5">
                       <div className="flex items-start justify-between gap-2">
                         <span className="min-w-0">
@@ -349,7 +360,7 @@ export default function Relatorios() {
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${t.concluido ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>{t.status}</span>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
-                        {t.local && <span>{t.local}</span>}
+                        {t.local && <span>{siglaDe(t.tipoLocal)}{t.local}</span>}
                         {t.responsavel && <span>{t.responsavel}</span>}
                         {!!t.minutosNoMes && <span>{fmtMinutos(t.minutosNoMes)}</span>}
                         <span className="font-mono">{fmtDataHora(t.criadoEm)}</span>
@@ -372,11 +383,11 @@ export default function Relatorios() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dados.lista.map((t) => {
+                    {listaFiltrada.map((t) => {
                       return (
                         <tr key={t.id} className="border-b border-slate-800/50 last:border-0">
                           <td className="px-4 py-2"><span className="font-mono text-[11px] text-slate-500">{t.code}</span> <span className="text-slate-200">{t.title}</span></td>
-                          <td className="px-4 py-2 text-slate-400">{t.local || '—'}</td>
+                          <td className="px-4 py-2 text-slate-400">{siglaDe(t.tipoLocal)}{t.local || '—'}</td>
                           <td className="px-4 py-2 text-slate-300">{t.status}</td>
                           <td className="px-4 py-2 text-slate-400">{t.responsavel || '—'}</td>
                           <td className="whitespace-nowrap px-4 py-2 font-mono text-[12px] text-slate-400">{fmtDataHora(t.criadoEm)}</td>

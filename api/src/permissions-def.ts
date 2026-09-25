@@ -41,6 +41,16 @@ export const PERMISSIONS: PermDef[] = [
   { id: 'ver_registros', label: 'Ver registros (linha do tempo)', module: 'Registros' },
   { id: 'criar_registros', label: 'Criar registros', module: 'Registros' },
   { id: 'excluir_registros', label: 'Excluir registros de outras pessoas', module: 'Registros' },
+  // Controles & Tags (pedidos). Quem lança edita e apaga o PRÓPRIO pedido; as de baixo são
+  // para mexer no dos outros.
+  { id: 'ver_pedidos', label: 'Ver Controles & Tags', module: 'Controles & Tags' },
+  { id: 'criar_pedidos', label: 'Lançar pedidos (e editar/apagar os próprios)', module: 'Controles & Tags' },
+  { id: 'marcar_etapas_pedido', label: 'Marcar pago, feito e entregue', module: 'Controles & Tags' },
+  { id: 'editar_pedidos', label: 'Editar pedidos de outras pessoas', module: 'Controles & Tags' },
+  { id: 'excluir_pedidos', label: 'Excluir pedidos de outras pessoas', module: 'Controles & Tags' },
+  { id: 'ver_comprovantes', label: 'Ver comprovante de pedidos de outras pessoas', module: 'Controles & Tags' },
+  { id: 'ver_valores_pedido', label: 'Ver valores (no cartão, no pedido e no relatório)', module: 'Controles & Tags' },
+  { id: 'gerenciar_catalogo_pedidos', label: 'Editar categorias, itens e valores', module: 'Controles & Tags' },
   // Relatórios
   { id: 'ver_relatorios', label: 'Ver relatórios (mensal e horas)', module: 'Relatórios' },
   // Auditoria
@@ -49,6 +59,7 @@ export const PERMISSIONS: PermDef[] = [
   { id: 'ver_usuarios', label: 'Ver usuários', module: 'Usuários' },
   { id: 'criar_usuarios', label: 'Criar usuários', module: 'Usuários' },
   { id: 'editar_usuarios', label: 'Editar usuários / redefinir senha', module: 'Usuários' },
+  { id: 'ver_senha_temporaria', label: 'Ver a senha temporária de quem ainda não trocou', module: 'Usuários' },
   { id: 'desativar_usuarios', label: 'Desativar usuários', module: 'Usuários' },
   { id: 'gerenciar_papeis', label: 'Gerenciar perfis e permissões', module: 'Usuários' },
   // Administração
@@ -93,6 +104,7 @@ export const ROLES: { id: string; name: string; color: string; system?: boolean;
       'registrar_atendimento', 'definir_servico', 'concluir_chamados', 'compartilhar_chamados', 'anexar_fotos_chamado',
       'comentar_chamados', 'ver_arquivados',
       'ver_registros', 'criar_registros',
+      'ver_pedidos', 'criar_pedidos', 'marcar_etapas_pedido', 'ver_comprovantes',
     ],
   },
   {
@@ -101,6 +113,7 @@ export const ROLES: { id: string; name: string; color: string; system?: boolean;
       'ver_dashboard', 'ver_locais',
       'ver_chamados', 'ver_todos_chamados', 'criar_chamados', 'anexar_fotos_chamado', 'comentar_chamados',
       'ver_registros', 'criar_registros',
+      'ver_pedidos', 'criar_pedidos', 'ver_valores_pedido',
     ],
   },
 ]

@@ -10,6 +10,7 @@ const ACTION: Record<LogAction, { label: string; color: string }> = {
   editar: { label: 'Editou', color: '#fbbf24' },
   excluir: { label: 'Excluiu', color: '#f87171' },
   login: { label: 'Sessão', color: '#a78bfa' },
+  ver: { label: 'Consultou', color: '#38bdf8' },
 }
 const ENTITY: Record<LogEntity, string> = {
   chamado: 'Chamado',
@@ -18,6 +19,7 @@ const ENTITY: Record<LogEntity, string> = {
   usuario: 'Usuário',
   sessao: 'Sessão',
   config: 'Configuração',
+  pedido: 'Pedido',
 }
 const ACAO_DESCONHECIDA = { label: 'Ação', color: '#a1a1aa' }
 

@@ -67,6 +67,20 @@ Não edite o campo `version` à mão nem no meio de um commit — quem manda é 
 - **Tipo de local é opcional e nunca "chuta"**: ao apagar um tipo (`local_tipos`), os locais
   dele ficam sem tipo — nada de mover para a primeira etiqueta, como fazem os registros.
   Um local com a etiqueta errada mente; um local sem etiqueta, não.
+- **Senha temporária só existe até a pessoa trocar**: fica cifrada (AES-GCM, chave derivada do
+  `JWT_SECRET`) em `User.senhaTemp`, visível só com `ver_senha_temporaria` e cada consulta vai para
+  a auditoria. Trocou a senha, apaga. Senha definitiva nunca se guarda. Trocar o `JWT_SECRET`
+  inutiliza as guardadas (basta redefinir).
+- **Controles & Tags (pedidos)**: três modalidades (`pedido`, `manutencao`, `lote`), sempre com local;
+  apartamento obrigatório fora do lote. Itens vêm do catálogo `pedido_catalogo` (categoria → itens,
+  com valor) e o pedido COPIA nome e valor no dia — mudar o catálogo não reescreve pedido.
+  Etapas em ordem, por modalidade (desmarca só a última): **pedido** pago → feito → entregue;
+  **lote** pago → entregue (o condomínio configura); **manutenção** resolvido → entregue (usa o campo
+  de feito). Pago exige comprovante (lançar com comprovante já nasce pago); feito do pedido exige
+  serial ou foto do serial. Serial sempre em MAIÚSCULAS. Categorias do catálogo são `item` ou
+  `manutencao` (serviço, ex.: troca de pilha). Valor só sai do servidor com `ver_valores_pedido`. Quem lança edita/apaga o próprio; o dos outros tem permissão
+  própria. Comprovante de pedido alheio só com `ver_comprovantes` — sem ela o servidor nem manda o
+  caminho do arquivo. Comprovante aceita imagem ou PDF (só aqui).
 - **Cancelado só existe na auditoria**: o chamado some do quadro, do histórico, do dashboard e dos
   relatórios. A linha da auditoria é que guarda título, relato, quem abriu, quem cancelou e o motivo.
 - Data de abertura/conclusão só se edita com `ajustar_datas_chamado`. A exceção é o serviço já

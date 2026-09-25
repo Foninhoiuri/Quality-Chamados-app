@@ -13,12 +13,14 @@ import { fileURLToPath } from 'node:url'
 
 export const UPLOAD_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'uploads')
 
-const TIPOS: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+const TIPOS: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' }
 const MIME_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/webp': 'webp' }
 
 // Nome válido = 32 hex + extensão conhecida. Barra a travessia de diretório (`../`).
-const NAME_RE = /^[a-f0-9]{32}\.(png|jpe?g|webp)$/
+const NAME_RE = /^[a-f0-9]{32}\.(png|jpe?g|webp|pdf)$/
 export const UPLOAD_PATH_RE = /^\/uploads\/[a-f0-9]{32}\.(png|jpe?g|webp)$/
+/** Comprovante: imagem ou PDF (o boleto pago chega em PDF). Foto de chamado continua só imagem. */
+export const COMPROVANTE_PATH_RE = /^\/uploads\/[a-f0-9]{32}\.(png|jpe?g|webp|pdf)$/
 
 const DATA_URL_RE = /^data:([a-z0-9.+/-]+);base64,([A-Za-z0-9+/=]+)$/i
 const MAX_IMAGE = 15 * 1024 * 1024
@@ -27,12 +29,12 @@ export async function ensureUploadDir() {
   await fs.mkdir(UPLOAD_DIR, { recursive: true })
 }
 
-/** Grava uma data URL de imagem e devolve o caminho público (ou null se inválida). */
-export async function saveDataUrl(dataUrl: unknown): Promise<string | null> {
+/** Grava uma data URL de imagem (ou PDF, com `aceitaPdf`) e devolve o caminho público. */
+export async function saveDataUrl(dataUrl: unknown, aceitaPdf = false): Promise<string | null> {
   if (typeof dataUrl !== 'string') return null
   const m = DATA_URL_RE.exec(dataUrl)
   if (!m) return null
-  const ext = MIME_EXT[m[1].toLowerCase()]
+  const ext = aceitaPdf && m[1].toLowerCase() === 'application/pdf' ? 'pdf' : MIME_EXT[m[1].toLowerCase()]
   if (!ext) return null
   const buf = Buffer.from(m[2], 'base64')
   if (buf.length === 0 || buf.length > MAX_IMAGE) return null
@@ -55,7 +57,7 @@ export async function readUpload(name: string): Promise<{ body: Buffer; mime: st
 /** Apaga arquivos que não são mais referenciados. Nunca lança. */
 export async function deleteUploads(paths: (string | null | undefined)[]) {
   for (const p of paths) {
-    if (!p || !UPLOAD_PATH_RE.test(p)) continue
+    if (!p || !COMPROVANTE_PATH_RE.test(p)) continue
     await fs.unlink(path.join(UPLOAD_DIR, p.slice('/uploads/'.length))).catch(() => {})
   }
 }

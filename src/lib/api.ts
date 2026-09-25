@@ -1,4 +1,4 @@
-import type { EventoNotificacao, Local, LogEntry, MonthlyReport, Notification, Novidades, Overview, Registro, Role, SugestaoEndereco, Ticket, TecnicoRef, TicketComment, User } from './types'
+import type { EventoNotificacao, Local, LogEntry, MonthlyReport, Notification, Novidades, Overview, Pedido, Registro, RelatorioPedidos, Role, SugestaoEndereco, Ticket, TecnicoRef, TicketComment, User } from './types'
 import type { PermissionDef } from './permissions'
 
 // Base da API: `/api` na mesma origem (Vite/nginx fazem proxy para o backend).
@@ -102,6 +102,7 @@ export const api = {
 
   // usuários
   users: () => req<User[]>('GET', '/users'),
+  senhaTemporaria: (id: string) => req<{ senha: string }>('GET', `/users/${id}/senha-temporaria`),
   createUser: (input: Partial<User>) => req<CreatedUser>('POST', '/users', input),
   updateUser: (id: string, patch: Partial<User>) => req<User>('PATCH', `/users/${id}`, patch),
   deleteUser: (id: string) => req('DELETE', `/users/${id}`),
@@ -156,6 +157,12 @@ export const api = {
   createRegistro: (body: Partial<Registro> & { descricao: string }) => req<Registro>('POST', '/registros', body),
   updateRegistro: (id: string, body: Partial<Registro>) => req<Registro>('PATCH', `/registros/${id}`, body),
   deleteRegistro: (id: string) => req('DELETE', `/registros/${id}`),
+  pedidos: (historico = false) => req<Pedido[]>('GET', `/pedidos${historico ? '?historico=1' : ''}`),
+  createPedido: (body: Record<string, unknown>) => req<Pedido>('POST', '/pedidos', body),
+  updatePedido: (id: string, body: Record<string, unknown>) => req<Pedido>('PATCH', `/pedidos/${id}`, body),
+  etapaPedido: (id: string, etapa: 'pago' | 'feito' | 'entregue', valor: boolean, extra: Record<string, unknown> = {}) => req<Pedido>('POST', `/pedidos/${id}/etapa`, { etapa, valor, ...extra }),
+  deletePedido: (id: string) => req('DELETE', `/pedidos/${id}`),
+  relatorioPedidos: (month: string, localId?: string) => req<RelatorioPedidos>('GET', `/pedidos/relatorio?month=${month}${localId ? `&localId=${localId}` : ''}`),
 
   // dashboard e relatório
   /** O que há de mais novo em cada área (pontinhos da barra de navegação). */

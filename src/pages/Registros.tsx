@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, Building2, User as UserIcon, Pencil, Trash2, Ticket, Loader2, Phone, Tags, FileText, Download } from 'lucide-react'
+import { Plus, Search, Building2, User as UserIcon, Pencil, Trash2, Ticket, Loader2, Phone, Tags, FileText, Download, FileBarChart } from 'lucide-react'
 import { Button, EmptyState, Field, FieldBox, Input, Modal, PageHeader, Select, Textarea } from '@/components/ui'
 import { useStore, useCan, useCurrentUser } from '@/lib/store'
 import { GerenciarLista } from '@/components/GerenciarLista'
@@ -9,6 +9,7 @@ import { parseTiposRegistro, tipoRegistroDe } from '@/lib/registros'
 import { paraInputLocal } from '@/lib/tickets'
 import { LocalSelect } from '@/components/LocalSelect'
 import { AvatarPessoa } from '@/components/Pessoa'
+import { RelatorioRegistros } from '@/components/RelatorioRegistros'
 import type { Registro, TipoRegistro } from '@/lib/types'
 
 interface RForm { tipo: TipoRegistro; ocorridoEm: string; solicitante: string; titulo: string; descricao: string; localId: string }
@@ -53,6 +54,7 @@ export default function Registros() {
   const [saving, setSaving] = useState(false)
   const [gerenciando, setGerenciando] = useState(false)
   const [exportando, setExportando] = useState(false)
+  const [relatorio, setRelatorio] = useState(false)
 
   async function exportar(formato: 'pdf' | 'csv') {
     setExportando(true)
@@ -133,8 +135,10 @@ export default function Registros() {
         actions={canCreate && <Button onClick={openNew}><Plus size={15} /> Novo registro</Button>}
         menu={[
           // Exportação própria dos registros — nada a ver com o relatório de chamados.
-          { label: exportando ? 'Gerando PDF…' : 'Exportar PDF', icon: <FileText size={15} />, onClick: () => exportar('pdf'), disabled: !filtrados.length || exportando },
-          { label: 'Exportar CSV', icon: <Download size={15} />, onClick: () => exportar('csv'), disabled: !filtrados.length },
+          // Prévia com os números do mês, e o PDF/CSV de lá.
+          { label: 'Relatório', icon: <FileBarChart size={15} />, onClick: () => setRelatorio(true) },
+          { label: exportando ? 'Gerando PDF…' : 'Exportar esta lista (PDF)', icon: <FileText size={15} />, onClick: () => exportar('pdf'), disabled: !filtrados.length || exportando },
+          { label: 'Exportar esta lista (CSV)', icon: <Download size={15} />, onClick: () => exportar('csv'), disabled: !filtrados.length },
           canCategorias && { label: 'Categorias', icon: <Tags size={15} />, onClick: () => setGerenciando(true) },
         ]}
       />
@@ -259,6 +263,8 @@ export default function Registros() {
           </Field>
         </div>
       </Modal>
+
+      {relatorio && <RelatorioRegistros tipos={tipos} onClose={() => setRelatorio(false)} />}
 
       {gerenciando && (
         <GerenciarLista

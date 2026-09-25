@@ -419,3 +419,122 @@ describe('o que precisa ser feito (serviço na abertura)', () => {
     expect(res.statusCode).toBe(200)
   })
 })
+
+describe('senha temporária', () => {
+  it('quem tem a permissão vê a senha até a pessoa trocar; depois, some', async () => {
+    const criado = await app.inject({ method: 'POST', url: '/users', headers: comToken(admin), payload: { name: 'Novato', email: `novato-${Date.now()}@teste.local`, roleId: 'role-operador' } })
+    expect(criado.statusCode).toBe(200)
+    const { id, tempPassword, email } = criado.json()
+    expect(tempPassword).toBeTruthy()
+
+    const vista = await app.inject({ method: 'GET', url: `/users/${id}/senha-temporaria`, headers: comToken(gestor) })
+    expect(vista.statusCode).toBe(200)
+    expect(vista.json().senha).toBe(tempPassword)
+    // O hash e a cifra nunca saem na lista de usuários.
+    const lista = (await app.inject({ method: 'GET', url: '/users', headers: comToken(gestor) })).json()
+    const eu = lista.find((x: any) => x.id === id)
+    expect(eu.temSenhaTemporaria).toBe(true)
+    expect(eu.senhaTemp).toBeUndefined()
+
+    expect((await app.inject({ method: 'GET', url: `/users/${id}/senha-temporaria`, headers: comToken(tecnico) })).statusCode).toBe(403)
+
+    const login = await app.inject({ method: 'POST', url: '/auth/login', payload: { email, password: tempPassword } })
+    const token = login.json().token
+    await app.inject({ method: 'POST', url: '/auth/change-password', headers: comToken(token), payload: { newPassword: 'minha-senha-nova' } })
+    expect((await app.inject({ method: 'GET', url: `/users/${id}/senha-temporaria`, headers: comToken(gestor) })).statusCode).toBe(404)
+  })
+})
+
+describe('pedidos (Controles & Tags)', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const itens = [
+    { categoria: 'tag', item: 'nice', quantidade: 1 },
+    { categoria: 'tag-veicular', item: 'controlid', quantidade: 1 },
+    { categoria: 'controle', item: 'nice-new-evo', quantidade: 1 },
+  ]
+  async function lancar(token: string, extra: Record<string, unknown> = {}) {
+    const local = await prisma.local.create({ data: { code: `LC-P${Math.floor(Math.random() * 1e6)}`, name: 'Cond Pedido' } })
+    const res = await app.inject({ method: 'POST', url: '/pedidos', headers: comToken(token), payload: { localId: local.id, bloco: 'B', apartamento: '42', itens, ...extra } })
+    expect(res.statusCode, res.body).toBe(200)
+    return res.json()
+  }
+
+  it('etapas andam em ordem e cada uma pede a sua prova', async () => {
+    const p = await lancar(operador)
+    expect(p.code).toMatch(/^PD-\d{4}$/)
+    expect(p.itens.map((i: any) => i.itemLabel)).toEqual(['Nice', 'ControlID', 'Nice New Evo'])
+    expect(p.pagoEm).toBeNull()
+
+    const etapa = (token: string, payload: any) => app.inject({ method: 'POST', url: `/pedidos/${p.id}/etapa`, headers: comToken(token), payload })
+    expect((await etapa(operador, { etapa: 'pago', comprovantes: [PNG] })).statusCode).toBe(403)
+    expect((await etapa(tecnico, { etapa: 'feito', seriais: 'X1' })).statusCode).toBe(400) // falta pago
+    expect((await etapa(tecnico, { etapa: 'pago' })).statusCode).toBe(400) // falta comprovante
+    expect((await etapa(tecnico, { etapa: 'pago', comprovantes: [PNG] })).statusCode).toBe(200)
+    expect((await etapa(tecnico, { etapa: 'feito' })).statusCode).toBe(400) // falta serial/foto
+    const feito = await etapa(tecnico, { etapa: 'feito', seriais: 'ABC-123' })
+    expect(feito.statusCode).toBe(200)
+    expect((await etapa(tecnico, { etapa: 'pago', valor: false })).statusCode).toBe(400) // feito ainda marcado
+    const entregue = await etapa(tecnico, { etapa: 'entregue' })
+    expect(entregue.json().entregueEm).toBeTruthy()
+  })
+
+  it('lançado com comprovante já nasce pago; comprovante só para quem pode', async () => {
+    const p = await lancar(operador, { comprovantes: [PNG] })
+    expect(p.pagoEm).toBeTruthy()
+    const lista = (await app.inject({ method: 'GET', url: '/pedidos', headers: comToken(operador) })).json()
+    expect(lista.find((x: any) => x.id === p.id).comprovantes).toHaveLength(1) // é dela
+    // Outro operador (sem ver_comprovantes) só sabe que existe.
+    const outro = await entrar('Operador Dois', 'op2@teste.local', 'role-operador')
+    const vista = (await app.inject({ method: 'GET', url: '/pedidos', headers: comToken(outro) })).json().find((x: any) => x.id === p.id)
+    expect(vista.comprovantes).toHaveLength(0)
+    expect(vista.qtdComprovantes).toBe(1)
+    // E não apaga o pedido de outra pessoa.
+    expect((await app.inject({ method: 'DELETE', url: `/pedidos/${p.id}`, headers: comToken(outro) })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'DELETE', url: `/pedidos/${p.id}`, headers: comToken(operador) })).statusCode).toBe(200)
+  })
+
+  it('serial vira maiúsculas; relatório soma por item, por local e o total', async () => {
+    const p = await lancar(operador, { seriais: 'abc-12x', itens: [{ categoria: 'tag', item: 'nice', quantidade: 3, valor: 10 }] })
+    expect(p.seriais).toBe('ABC-12X')
+    const mes = new Date().toISOString().slice(0, 7)
+    const r = (await app.inject({ method: 'GET', url: `/pedidos/relatorio?month=${mes}&localId=${p.localId}`, headers: comToken(gestor) })).json()
+    expect(r.resumo.pedidos).toBe(1)
+    expect(r.resumo.itens).toBe(3)
+    expect(r.resumo.valor).toBe(30)
+    expect(r.resumo.porItem[0].itemLabel).toBe('Nice')
+    expect(r.resumo.porLocal[0].valor).toBe(30)
+    const mensal = (await app.inject({ method: 'GET', url: `/reports/monthly?month=${mes}&localId=${p.localId}`, headers: comToken(gestor) })).json()
+    expect(mensal.pedidos.valor).toBe(30)
+  })
+
+  it('lote é pago → entregue; manutenção é resolvido → entregue, sem pedir serial', async () => {
+    const PNG2 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    const lote = await lancar(operador, { modalidade: 'lote', apartamento: '' })
+    const etapa = (id: string, payload: any) => app.inject({ method: 'POST', url: `/pedidos/${id}/etapa`, headers: comToken(tecnico), payload })
+    expect((await etapa(lote.id, { etapa: 'feito', seriais: 'X' })).statusCode).toBe(400) // lote não tem "feito"
+    expect((await etapa(lote.id, { etapa: 'pago', comprovantes: [PNG2] })).statusCode).toBe(200)
+    expect((await etapa(lote.id, { etapa: 'entregue' })).statusCode).toBe(200)
+
+    const man = await lancar(operador, { modalidade: 'manutencao', itens: [{ categoria: 'manutencao', item: 'troca-de-pilha', quantidade: 1 }] })
+    expect((await etapa(man.id, { etapa: 'pago', comprovantes: [PNG2] })).statusCode).toBe(400) // manutenção não tem "pago"
+    expect((await etapa(man.id, { etapa: 'feito' })).statusCode).toBe(200) // resolvido, sem serial
+    expect((await etapa(man.id, { etapa: 'entregue' })).statusCode).toBe(200)
+  })
+
+  it('valor só sai para quem tem ver_valores_pedido', async () => {
+    const p = await lancar(operador, { itens: [{ categoria: 'tag', item: 'nice', quantidade: 2, valor: 15 }] })
+    const doOperador = (await app.inject({ method: 'GET', url: '/pedidos', headers: comToken(operador) })).json().find((x: any) => x.id === p.id)
+    expect(doOperador.itens[0].valor).toBe(15)
+    const doTecnico = (await app.inject({ method: 'GET', url: '/pedidos', headers: comToken(tecnico) })).json().find((x: any) => x.id === p.id)
+    expect(doTecnico.itens[0].valor).toBeNull()
+  })
+
+  it('pedido sem local, sem item ou sem apartamento não entra; lote dispensa apartamento', async () => {
+    const local = await prisma.local.findFirst()
+    const post = (payload: any) => app.inject({ method: 'POST', url: '/pedidos', headers: comToken(operador), payload })
+    expect((await post({ apartamento: '1', itens })).statusCode).toBe(400)
+    expect((await post({ localId: local.id, apartamento: '1', itens: [] })).statusCode).toBe(400)
+    expect((await post({ localId: local.id, itens })).statusCode).toBe(400)
+    expect((await post({ localId: local.id, modalidade: 'lote', itens })).statusCode).toBe(200)
+  })
+})
